@@ -1,25 +1,24 @@
 package com.example.eaa.ui.screens
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
 import com.example.eaa.model.GeneratedItem
-import com.example.eaa.audio.PlayerHolder
+import com.example.eaa.ui.LibraryRow
+import com.example.eaa.ui.SaveFolderChip
 import com.example.eaa.ui.VoiceFilterOptions
 import com.example.eaa.ui.VoiceFilters
 import com.example.eaa.ui.applyFilters
@@ -31,14 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
-/**
- * Главный экран: форма генерации + фильтры + список сгенерированных аудио
- * (прослушать / сохранить в Music / удалить) — всё на одном экране.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneratorScreen(
@@ -62,17 +54,36 @@ fun GeneratorScreen(
     val options = remember(voiceList) { VoiceFilterOptions.from(voiceList) }
     val filteredVoices = remember(voiceList, filters) { voiceList.applyFilters(filters) }
 
-    // --- Библиотека прямо под формой --------------------------------
+    // Состояние библиотеки (прогресс / список) — на главном экране
     var refreshTick by remember { mutableStateOf(0) }
     var libraryItems by remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
-    LaunchedEffect(refreshTick) {
+    var saveFolderLabel by remember { mutableStateOf<String?>(null) }
+    var saveInProgressPath by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
         libraryItems = AudioLibrary.list(context)
+        val tree = AudioLibrary.getSaveTree(context)
+        saveFolderLabel = tree?.let { AudioLibrary.humanFolderName(context, it) }
     }
+    LaunchedEffect(refreshTick) { refresh() }
 
     LaunchedEffect(apiKey) {
         if (apiKey.isNotBlank()) {
             kotlinx.coroutines.delay(500)
             KeychainHelper.set(context, apiKey)
+        }
+    }
+
+    val treePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+            AudioLibrary.setSaveTree(context, uri)
+            saveFolderLabel = AudioLibrary.humanFolderName(context, uri)
+            Toast.makeText(context, "Папка сохранения обновлена", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -100,7 +111,7 @@ fun GeneratorScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // --- API KEY ----------------------------------------------------
+            // --- API KEY ---
             item {
                 OutlinedTextField(
                     value = apiKey,
@@ -111,7 +122,7 @@ fun GeneratorScreen(
                 )
             }
 
-            // --- LOAD VOICES -----------------------------------------------
+            // --- LOAD VOICES ---
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(
@@ -144,11 +155,9 @@ fun GeneratorScreen(
                 }
             }
 
-            // --- FILTERS ----------------------------------------------------
+            // --- FILTERS ---
             if (voiceList.isNotEmpty()) {
-                item {
-                    Text("Фильтры", style = MaterialTheme.typography.titleMedium)
-                }
+                item { Text("Фильтры", style = MaterialTheme.typography.titleMedium) }
                 item {
                     FilterDropdown("Категория", options.categories, filters.category) {
                         filters = filters.copy(category = it)
@@ -193,7 +202,7 @@ fun GeneratorScreen(
                 }
             }
 
-            // --- VOICE PICKER ---------------------------------------------
+            // --- VOICE PICKER ---
             if (filteredVoices.isNotEmpty()) {
                 item {
                     VoicePicker(
@@ -208,18 +217,12 @@ fun GeneratorScreen(
                 }
             }
 
-            // --- VOICE SETTINGS -------------------------------------------
-            item {
-                SliderWithLabel("Stability", stability) { stability = it }
-            }
-            item {
-                SliderWithLabel("Similarity", similarity) { similarity = it }
-            }
-            item {
-                SliderWithLabel("Style", style) { style = it }
-            }
+            // --- VOICE SETTINGS ---
+            item { SliderWithLabel("Stability", stability) { stability = it } }
+            item { SliderWithLabel("Similarity", similarity) { similarity = it } }
+            item { SliderWithLabel("Style", style) { style = it } }
 
-            // --- TEXT + GENERATE ------------------------------------------
+            // --- TEXT + GENERATE ---
             item {
                 OutlinedTextField(
                     value = text,
@@ -252,18 +255,17 @@ fun GeneratorScreen(
                                     outputFormat = "mp3_44100_128",
                                     request = request
                                 )
-                                val savedPath: String = withContext(Dispatchers.IO) {
-                                    val safeName = voice.name.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                                withContext(Dispatchers.IO) {
+                                    val safeName = AudioLibrary.sanitizeFileName(voice.name)
                                     val outFile = File(
                                         context.externalCacheDir,
                                         "${safeName}_${System.currentTimeMillis()}.mp3"
                                     )
                                     outFile.writeBytes(body.bytes())
                                     AudioLibrary.add(context, outFile, voice.id, voice.name)
-                                    outFile.absolutePath
                                 }
                                 refreshTick++
-                                status = "✅ Сохранено: $savedPath"
+                                status = "✅ Готово"
                             } catch (e: Exception) {
                                 status = friendlyError(e, "Ошибка генерации")
                             } finally {
@@ -279,12 +281,22 @@ fun GeneratorScreen(
                 item { Text(status, style = MaterialTheme.typography.bodySmall) }
             }
 
-            // --- LIBRARY (сразу под формой) -------------------------------
+            // --- SAVE FOLDER + LIBRARY (под формой) ---
             item {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Text("Сгенерированные аудио", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Сгенерированные аудио",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SaveFolderChip(
+                        folderLabel = saveFolderLabel,
+                        onClick = { treePicker.launch(null) }
+                    )
+                }
             }
 
             if (libraryItems.isEmpty()) {
@@ -298,9 +310,21 @@ fun GeneratorScreen(
                 items(libraryItems, key = { it.id }) { libItem ->
                     LibraryRow(
                         item = libItem,
-                        refreshTick = refreshTick,
-                        onTick = { refreshTick++ },
-                        onRefresh = { refreshTick++ }
+                        isSaving = saveInProgressPath == libItem.file.absolutePath,
+                        onRefresh = { refreshTick++ },
+                        onChooseFolder = { treePicker.launch(null) },
+                        onSave = { i ->
+                            withContext(Dispatchers.IO) {
+                                AudioLibrary.exportToUserFolder(context, i)
+                            }
+                        },
+                        onSaved = { path ->
+                            Toast.makeText(
+                                context,
+                                "Сохранено: $path",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     )
                 }
             }
@@ -383,7 +407,7 @@ private fun FilterDropdown(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (selected == v) {
                                 Icon(
-                                    Icons.Default.Check,
+                                    androidx.compose.material.icons.Icons.Default.Check,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -394,120 +418,6 @@ private fun FilterDropdown(
                     },
                     onClick = { onSelect(v); expanded = false }
                 )
-            }
-        }
-    }
-}
-
-/**
- * Строка библиотеки внутри главного LazyColumn.
- * Кнопки:
- *  - Play / Pause (через PlayerHolder)
- *  - Save — копирование в Music/ElevenAudioGenerator
- *  - Delete — удаление с диска и из реестра
- */
-@Composable
-private fun LibraryRow(
-    item: GeneratedItem,
-    refreshTick: Int,
-    onTick: () -> Unit,
-    onRefresh: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
-    var isSaving by remember { mutableStateOf(false) }
-
-    val isThisPlaying = PlayerHolder.current() == item.file.absolutePath && PlayerHolder.isPlaying()
-    // refreshTick используется, чтобы Composable пересчитал isThisPlaying после старта плеера
-    val ignored = refreshTick  // no-op для подписки на изменения
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(item.voiceName, fontWeight = FontWeight.SemiBold)
-            Text(
-                "создано: ${df.format(Date(item.createdAt))}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                item.file.absolutePath,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalButton(
-                    onClick = {
-                        PlayerHolder.toggle(
-                            item.file,
-                            onPrepared = { onTick() },
-                            onCompletion = { onTick() }
-                        )
-                        onTick()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = null
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (isThisPlaying) "Пауза" else "Воспроизвести")
-                }
-                Spacer(Modifier.width(8.dp))
-                FilledTonalButton(
-                    onClick = {
-                        if (!isSaving) {
-                            isSaving = true
-                            scope.launch {
-                                val saved = withContext(Dispatchers.IO) {
-                                    AudioLibrary.exportToMusic(context, item.file, item.file.name)
-                                }
-                                isSaving = false
-                                if (saved != null) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Сохранено в Music/$saved",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                } else {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Не удалось сохранить",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                                onRefresh()
-                            }
-                        }
-                    },
-                    enabled = !isSaving,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.Save, contentDescription = null)
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (isSaving) "…" else "В Music")
-                }
-                Spacer(Modifier.width(8.dp))
-                FilledTonalButton(
-                    onClick = {
-                        if (PlayerHolder.current() == item.file.absolutePath) PlayerHolder.stop()
-                        AudioLibrary.remove(context, item)
-                        onRefresh()
-                        android.widget.Toast.makeText(
-                            context, "Удалено", android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Удалить")
-                }
             }
         }
     }
