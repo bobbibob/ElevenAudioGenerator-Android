@@ -5,14 +5,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
+import com.example.eaa.audio.PlayerHolder
 import com.example.eaa.ui.VoiceFilterOptions
 import com.example.eaa.ui.VoiceFilters
 import com.example.eaa.ui.applyFilters
@@ -24,7 +30,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+/**
+ * Главный экран: форма генерации + фильтры + список сгенерированных аудио
+ * (прослушать / сохранить в Music / удалить) — всё на одном экране.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneratorScreen(
@@ -44,7 +57,6 @@ fun GeneratorScreen(
     var isGenerating by remember { mutableStateOf(false) }
     var isLoadingVoices by remember { mutableStateOf(false) }
     var filters by remember { mutableStateOf(VoiceFilters()) }
-    var showFilters by remember { mutableStateOf(false) }
 
     val options = remember(voiceList) { VoiceFilterOptions.from(voiceList) }
     val filteredVoices = remember(voiceList, filters) { voiceList.applyFilters(filters) }
@@ -61,148 +73,236 @@ fun GeneratorScreen(
             TopAppBar(
                 title = { Text("Eleven Audio Generator") },
                 actions = {
-                    BadgedBox(badge = {
-                        if (filters.activeCount() > 0) {
-                            Badge { Text(filters.activeCount().toString()) }
-                        }
-                    }) {
-                        IconButton(onClick = { showFilters = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "Фильтры")
-                        }
-                    }
                     TextButton(onClick = onOpenLibrary) {
+                        Icon(
+                            Icons.Default.LibraryMusic,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
                         Text("Библиотека", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             )
         }
     ) { padding ->
-        Column(
-            Modifier.padding(padding).padding(16.dp),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text("ElevenLabs API‑key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // --- API KEY ----------------------------------------------------
+            item {
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("ElevenLabs API‑key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = {
-                        if (apiKey.isNotBlank() && !isLoadingVoices) {
-                            isLoadingVoices = true
-                            status = ""
-                            scope.launch {
-                                try {
-                                    voiceList = apiService.fetchVoices(apiKey).voices
-                                    selectedVoice = voiceList.firstOrNull()
-                                } catch (e: Exception) {
-                                    status = friendlyError(e, "Голоса не загрузились")
-                                } finally {
-                                    isLoadingVoices = false
+            // --- LOAD VOICES -----------------------------------------------
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = {
+                            if (apiKey.isNotBlank() && !isLoadingVoices) {
+                                isLoadingVoices = true
+                                status = ""
+                                scope.launch {
+                                    try {
+                                        voiceList = apiService.fetchVoices(apiKey).voices
+                                        selectedVoice = filteredVoices.firstOrNull() ?: voiceList.firstOrNull()
+                                    } catch (e: Exception) {
+                                        status = friendlyError(e, "Голоса не загрузились")
+                                    } finally {
+                                        isLoadingVoices = false
+                                    }
                                 }
                             }
-                        }
-                    },
-                    enabled = !isLoadingVoices && apiKey.isNotBlank()
-                ) { Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса") }
+                        },
+                        enabled = !isLoadingVoices && apiKey.isNotBlank()
+                    ) { Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса") }
 
-                Spacer(Modifier.width(12.dp))
-                if (voiceList.isNotEmpty()) {
-                    Text(
-                        "${filteredVoices.size}/${voiceList.size}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Spacer(Modifier.width(12.dp))
+                    if (voiceList.isNotEmpty()) {
+                        Text(
+                            "${filteredVoices.size}/${voiceList.size}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
 
-            if (filteredVoices.isNotEmpty()) {
-                VoicePicker(
-                    voices = filteredVoices,
-                    selected = selectedVoice,
-                    onSelect = { selectedVoice = it }
-                )
-            } else if (voiceList.isNotEmpty()) {
-                Text("Ничего не найдено по фильтрам.", style = MaterialTheme.typography.bodySmall)
-            }
-
+            // --- FILTERS ----------------------------------------------------
             if (voiceList.isNotEmpty()) {
-                Text(
-                    "Выбран: ${selectedVoice?.name ?: "—"}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                item {
+                    Text("Фильтры", style = MaterialTheme.typography.titleMedium)
+                }
+                item {
+                    FilterDropdown("Категория", options.categories, filters.category) {
+                        filters = filters.copy(category = it)
+                    }
+                }
+                item {
+                    FilterDropdown("Пол", options.genders, filters.gender) {
+                        filters = filters.copy(gender = it)
+                    }
+                }
+                item {
+                    FilterDropdown("Возраст", options.ages, filters.age) {
+                        filters = filters.copy(age = it)
+                    }
+                }
+                item {
+                    FilterDropdown("Язык / Акцент", options.languages, filters.language) {
+                        filters = filters.copy(language = it)
+                    }
+                }
+                item {
+                    FilterDropdown("Применение (use case)", options.useCases, filters.useCase) {
+                        filters = filters.copy(useCase = it)
+                    }
+                }
+                item {
+                    OutlinedTextField(
+                        value = filters.search,
+                        onValueChange = { filters = filters.copy(search = it) },
+                        label = { Text("Поиск по имени / описанию") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (filters.activeCount() > 0) {
+                    item {
+                        AssistChip(
+                            onClick = { filters = VoiceFilters() },
+                            label = { Text("Сбросить все фильтры (${filters.activeCount()})") }
+                        )
+                    }
+                }
             }
 
-            SliderWithLabel("Stability", stability) { stability = it }
-            SliderWithLabel("Similarity", similarity) { similarity = it }
-            SliderWithLabel("Style", style) { style = it }
+            // --- VOICE PICKER ---------------------------------------------
+            if (filteredVoices.isNotEmpty()) {
+                item {
+                    VoicePicker(
+                        voices = filteredVoices,
+                        selected = selectedVoice,
+                        onSelect = { selectedVoice = it }
+                    )
+                }
+            } else if (voiceList.isNotEmpty()) {
+                item {
+                    Text("Ничего не найдено по фильтрам.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Текст главы") },
-                modifier = Modifier.fillMaxWidth().height(120.dp)
-            )
+            // --- VOICE SETTINGS -------------------------------------------
+            item {
+                SliderWithLabel("Stability", stability) { stability = it }
+            }
+            item {
+                SliderWithLabel("Similarity", similarity) { similarity = it }
+            }
+            item {
+                SliderWithLabel("Style", style) { style = it }
+            }
 
-            Button(
-                onClick = {
-                    val voice = selectedVoice ?: return@Button
-                    isGenerating = true
-                    status = "Генерация…"
-                    scope.launch {
-                        try {
-                            val request = SynthesizeRequest(
-                                text = text,
-                                modelId = "eleven_multilingual_v2",
-                                voiceSettings = VoiceSettings(
-                                    stability = stability,
-                                    similarityBoost = similarity,
-                                    style = style,
-                                    useSpeakerBoost = true
+            // --- TEXT + GENERATE ------------------------------------------
+            item {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Текст главы") },
+                    modifier = Modifier.fillMaxWidth().height(140.dp)
+                )
+            }
+            item {
+                Button(
+                    onClick = {
+                        val voice = selectedVoice ?: return@Button
+                        isGenerating = true
+                        status = "Генерация…"
+                        scope.launch {
+                            try {
+                                val request = SynthesizeRequest(
+                                    text = text,
+                                    modelId = "eleven_multilingual_v2",
+                                    voiceSettings = VoiceSettings(
+                                        stability = stability,
+                                        similarityBoost = similarity,
+                                        style = style,
+                                        useSpeakerBoost = true
+                                    )
                                 )
-                            )
-                            val body = apiService.synthesize(
-                                voiceId = voice.id,
-                                apiKey = apiKey,
-                                outputFormat = "mp3_44100_128",
-                                request = request
-                            )
-                            val savedPath: String = withContext(Dispatchers.IO) {
-                                val safeName = voice.name.replace(Regex("[^A-Za-z0-9_-]"), "_")
-                                val outFile = File(
-                                    context.externalCacheDir,
-                                    "${safeName}_${System.currentTimeMillis()}.mp3"
+                                val body = apiService.synthesize(
+                                    voiceId = voice.id,
+                                    apiKey = apiKey,
+                                    outputFormat = "mp3_44100_128",
+                                    request = request
                                 )
-                                outFile.writeBytes(body.bytes())
-                                AudioLibrary.add(context, outFile, voice.id, voice.name)
-                                outFile.absolutePath
+                                val savedPath: String = withContext(Dispatchers.IO) {
+                                    val safeName = voice.name.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                                    val outFile = File(
+                                        context.externalCacheDir,
+                                        "${safeName}_${System.currentTimeMillis()}.mp3"
+                                    )
+                                    outFile.writeBytes(body.bytes())
+                                    AudioLibrary.add(context, outFile, voice.id, voice.name)
+                                    outFile.absolutePath
+                                }
+                                status = "✅ Сохранено: $savedPath"
+                            } catch (e: Exception) {
+                                status = friendlyError(e, "Ошибка генерации")
+                            } finally {
+                                isGenerating = false
                             }
-                            status = "✅ Сохранено: $savedPath"
-                        } catch (e: Exception) {
-                            status = friendlyError(e, "Ошибка генерации")
-                        } finally {
-                            isGenerating = false
                         }
-                    }
-                },
-                enabled = !isGenerating && apiKey.isNotBlank() && text.isNotBlank() && selectedVoice != null,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (isGenerating) "Генерируем…" else "Сгенерировать") }
+                    },
+                    enabled = !isGenerating && apiKey.isNotBlank() && text.isNotBlank() && selectedVoice != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isGenerating) "Генерируем…" else "Сгенерировать") }
+            }
+            if (status.isNotEmpty()) {
+                item { Text(status, style = MaterialTheme.typography.bodySmall) }
+            }
 
-            if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
-        }
+            // --- LIBRARY (сразу под формой) -------------------------------
+            item {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text("Сгенерированные аудио", style = MaterialTheme.typography.titleMedium)
+            }
 
-        if (showFilters) {
-            FiltersDialog(
-                filters = filters,
-                options = options,
-                onDismiss = { showFilters = false },
-                onApply = { f -> filters = f; showFilters = false },
-                onReset = { filters = VoiceFilters() }
-            )
+            val items = remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
+            // Перечитываем список при каждом появлении экрана и после изменений (через tick).
+            var refreshTick by remember { mutableStateOf(0) }
+            LaunchedEffect(refreshTick) {
+                items.value = AudioLibrary.list(context)
+            }
+
+            // ВАЖНО: список рендерим как обычные items() внутри текущего LazyColumn
+            if (items.value.isEmpty()) {
+                item {
+                    Text(
+                        "Пока нет аудио. Нажмите «Сгенерировать», чтобы создать первый файл.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            } else {
+                items(items.value, key = { it.id }) { item ->
+                    LibraryRow(
+                        item = item,
+                        refreshTick = refreshTick,
+                        onTick = { refreshTick++ },
+                        onRefresh = { refreshTick++ }
+                    )
+                }
+            }
         }
     }
 }
@@ -252,77 +352,6 @@ private fun VoicePicker(voices: List<Voice>, selected: Voice?, onSelect: (Voice)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FiltersDialog(
-    filters: VoiceFilters,
-    options: VoiceFilterOptions,
-    onDismiss: () -> Unit,
-    onApply: (VoiceFilters) -> Unit,
-    onReset: () -> Unit
-) {
-    var category by remember { mutableStateOf(filters.category) }
-    var gender by remember { mutableStateOf(filters.gender) }
-    var age by remember { mutableStateOf(filters.age) }
-    var language by remember { mutableStateOf(filters.language) }
-    var useCase by remember { mutableStateOf(filters.useCase) }
-    var search by remember { mutableStateOf(filters.search) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Фильтры голосов", modifier = Modifier.weight(1f))
-                if (filters.activeCount() > 0) {
-                    AssistChip(
-                        onClick = {
-                            category = null; gender = null; age = null; language = null
-                            useCase = null; search = ""
-                        },
-                        label = { Text("Сбросить") }
-                    )
-                }
-            }
-        },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        label = { Text("Поиск по имени / описанию") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                item {
-                    FilterDropdown("Категория", options.categories, category) { category = it }
-                }
-                item {
-                    FilterDropdown("Пол", options.genders, gender) { gender = it }
-                }
-                item {
-                    FilterDropdown("Возраст", options.ages, age) { age = it }
-                }
-                item {
-                    FilterDropdown("Язык / Акцент", options.languages, language) { language = it }
-                }
-                item {
-                    FilterDropdown("Применение (use case)", options.useCases, useCase) { useCase = it }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onApply(VoiceFilters(category, gender, age, language, useCase, search))
-            }) { Text("Применить") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun FilterDropdown(
     label: String,
     options: List<String>,
@@ -364,6 +393,120 @@ private fun FilterDropdown(
                     },
                     onClick = { onSelect(v); expanded = false }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Строка библиотеки внутри главного LazyColumn.
+ * Кнопки:
+ *  - Play / Pause (через PlayerHolder)
+ *  - Save — копирование в Music/ElevenAudioGenerator
+ *  - Delete — удаление с диска и из реестра
+ */
+@Composable
+private fun LibraryRow(
+    item: GeneratedItem,
+    refreshTick: Int,
+    onTick: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    val isThisPlaying = PlayerHolder.current() == item.file.absolutePath && PlayerHolder.isPlaying()
+    // refreshTick используется, чтобы Composable пересчитал isThisPlaying после старта плеера
+    val ignored = refreshTick  // no-op для подписки на изменения
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(item.voiceName, fontWeight = FontWeight.SemiBold)
+            Text(
+                "создано: ${df.format(Date(item.createdAt))}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                item.file.absolutePath,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilledTonalButton(
+                    onClick = {
+                        PlayerHolder.toggle(
+                            item.file,
+                            onPrepared = { onTick() },
+                            onCompletion = { onTick() }
+                        )
+                        onTick()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isThisPlaying) "Пауза" else "Воспроизвести")
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = {
+                        if (!isSaving) {
+                            isSaving = true
+                            scope.launch {
+                                val saved = withContext(Dispatchers.IO) {
+                                    AudioLibrary.exportToMusic(context, item.file, item.file.name)
+                                }
+                                isSaving = false
+                                if (saved != null) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Сохранено в Music/$saved",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Не удалось сохранить",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                onRefresh()
+                            }
+                        }
+                    },
+                    enabled = !isSaving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isSaving) "…" else "В Music")
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = {
+                        if (PlayerHolder.current() == item.file.absolutePath) PlayerHolder.stop()
+                        AudioLibrary.remove(context, item)
+                        onRefresh()
+                        android.widget.Toast.makeText(
+                            context, "Удалено", android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Удалить")
+                }
             }
         }
     }

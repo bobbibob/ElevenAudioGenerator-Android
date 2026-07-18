@@ -32,12 +32,8 @@ import java.util.Locale
 private const val TAG = "ElevenAudioGen.Lib"
 
 /**
- * Экран "Библиотека": список сгенерированных MP3 с кнопками
- * Воспроизвести/Пауза, Сохранить в Music/ElevenAudioGenerator, Удалить.
- *
- * Список читается из кэш-папки через [AudioLibrary.list] (он сканирует
- * externalCacheDir и берёт данные из реестра), так что даже ранее сохранённые
- * файлы появятся здесь.
+ * Полноэкранный список сгенерированных MP3 — открывается по кнопке "Библиотека".
+ * Кнопки на каждой строке: Воспроизвести/Пауза, Сохранить в Music, Удалить.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,7 +45,6 @@ fun LibraryScreen(onBack: () -> Unit) {
     var tick by remember { mutableStateOf(0) }
     var saveInProgressPath by remember { mutableStateOf<String?>(null) }
 
-    // Первичная загрузка + перечитка при возврате на экран
     LaunchedEffect(Unit) { items = AudioLibrary.list(context) }
     LaunchedEffect(tick) {
         while (true) {
@@ -95,7 +90,6 @@ fun LibraryScreen(onBack: () -> Unit) {
                     isPlaying = playingPath == item.file.absolutePath && PlayerHolder.isPlaying(),
                     isSaving = saveInProgressPath == item.file.absolutePath,
                     onPlayPause = {
-                        Log.d(TAG, "Play/Pause: ${item.file.absolutePath}")
                         PlayerHolder.toggle(
                             item.file,
                             onPrepared = { tick++ },
@@ -104,14 +98,12 @@ fun LibraryScreen(onBack: () -> Unit) {
                         tick++
                     },
                     onDelete = {
-                        Log.d(TAG, "Delete: ${item.file.absolutePath}")
                         if (PlayerHolder.current() == item.file.absolutePath) PlayerHolder.stop()
                         AudioLibrary.remove(context, item)
                         items = AudioLibrary.list(context)
                         Toast.makeText(context, "Удалено", Toast.LENGTH_SHORT).show()
                     },
                     onSave = {
-                        Log.d(TAG, "Save: ${item.file.absolutePath}")
                         val path = item.file.absolutePath
                         saveInProgressPath = path
                         scope.launch {
@@ -147,40 +139,56 @@ private fun LibraryRow(
 ) {
     val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(item.voiceName, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "создано: ${df.format(Date(item.createdAt))}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    item.file.absolutePath,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
-                )
-            }
-            IconButton(onClick = onPlayPause) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Пауза" else "Воспроизвести"
-                )
-            }
-            IconButton(onClick = onSave, enabled = !isSaving) {
-                if (isSaving) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(item.voiceName, fontWeight = FontWeight.SemiBold)
+            Text(
+                "создано: ${df.format(Date(item.createdAt))}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                item.file.absolutePath,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2
+            )
+            Spacer(Modifier.height(8.dp))
+            Row {
+                FilledTonalButton(
+                    onClick = onPlayPause,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = null
                     )
-                } else {
-                    Icon(Icons.Default.Save, contentDescription = "Сохранить в Music")
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isPlaying) "Пауза" else "Play")
                 }
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Удалить")
+                Spacer(Modifier.width(6.dp))
+                FilledTonalButton(
+                    onClick = onSave,
+                    enabled = !isSaving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isSaving) "…" else "В Music")
+                }
+                Spacer(Modifier.width(6.dp))
+                FilledTonalButton(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Удалить")
+                }
             }
         }
     }
