@@ -18,7 +18,6 @@ interface ElevenLabsService {
     suspend fun fetchVoices(@Header("xi-api-key") apiKey: String): VoiceResponse
 
     /**
-     * Generate speech for the given voice.
      * @param outputFormat e.g. "mp3_44100_128" — передаётся в query, не в body
      */
     @POST("text-to-speech/{voiceId}")
@@ -35,10 +34,20 @@ data class VoiceResponse(
     @Json(name = "voices") val voices: List<Voice>
 )
 
+/**
+ * Расширенная модель голоса — поля совпадают с тем, что возвращает
+ * GET /v1/voices в ElevenLabs. Необязательные поля помечены как null.
+ */
 @JsonClass(generateAdapter = true)
 data class Voice(
     @Json(name = "voice_id") val id: String,
-    @Json(name = "name") val name: String
+    @Json(name = "name") val name: String,
+    @Json(name = "category") val category: String? = null,           // "premade" / "cloned" / "generated" / "professional"
+    @Json(name = "description") val description: String? = null,
+    @Json(name = "labels") val labels: Map<String, String>? = null,    // {"accent": "american", "gender": "male", ...}
+    @Json(name = "preview_url") val previewUrl: String? = null,
+    @Json(name = "available_for_tiers") val availableForTiers: List<String>? = null,
+    @Json(name = "settings") val settings: VoiceSettings? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -57,3 +66,6 @@ data class VoiceSettings(
     @Json(name = "speed") val speed: Double = 1.0,
     @Json(name = "pitch") val pitch: Double = 0.0
 )
+
+/** Удобный доступ к label-характеристикам голоса. */
+fun Voice.label(key: String): String? = labels?.get(key)
