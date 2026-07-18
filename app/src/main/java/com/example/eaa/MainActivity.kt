@@ -4,16 +4,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
 import com.example.eaa.util.KeychainHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val apiService by lazy {
@@ -29,6 +32,7 @@ class MainActivity : ComponentActivity() {
         setContent { AppContent() }
     }
 
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     @Composable
     fun AppContent() {
         val scope = rememberCoroutineScope()
@@ -42,45 +46,59 @@ class MainActivity : ComponentActivity() {
         var text by remember { mutableStateOf("") }
         var status by remember { mutableStateOf("") }
         var isGenerating by remember { mutableStateOf(false) }
+        var isLoadingVoices by remember { mutableStateOf(false) }
+
+        // Дебаунс: сохраняем API-ключ в Keystore не на каждое нажатие, а через 500 мс после паузы
+        LaunchedEffect(apiKey) {
+            if (apiKey.isNotBlank()) {
+                delay(500)
+                KeychainHelper.set(this@MainActivity, apiKey)
+            }
+        }
 
         Scaffold(
             topBar = { TopAppBar(title = { Text("Eleven Audio Generator") }) },
             content = { padding ->
-                Column(modifier = Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // API key entry
+                Column(
+                    modifier = Modifier.padding(padding).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     OutlinedTextField(
                         value = apiKey,
-                        onValueChange = {
-                            apiKey = it
-                            KeychainHelper.set(this@MainActivity, it)
-                        },
+                        onValueChange = { apiKey = it },
                         label = { Text("ElevenLabs API‑key") },
                         singleLine = true
                     )
 
-                    // Load voices button
-                    Button(onClick = {
-                        if (apiKey.isNotBlank()) {
-                            scope.launch {
-                                try {
-                                    voiceList = apiService.fetchVoices(apiKey).voices
-                                    selectedVoice = voiceList.firstOrNull()
-                                } catch (e: Exception) { status = "⚠️ ${e.message}" }
+                    Button(
+                        onClick = {
+                            if (apiKey.isNotBlank() && !isLoadingVoices) {
+                                isLoadingVoices = true
+                                scope.launch {
+                                    try {
+                                        voiceList = apiService.fetchVoices(apiKey).voices
+                                        selectedVoice = voiceList.firstOrNull()
+                                        status = ""
+                                    } catch (e: Exception) {
+                                        status = "⚠️ ${e.message}"
+                                    } finally {
+                                        isLoadingVoices = false
+                                    }
+                                }
                             }
-                        }
-                    }) { Text("Загрузить голоса") }
+                        },
+                        enabled = !isLoadingVoices && apiKey.isNotBlank()
+                    ) { Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса") }
 
                     if (voiceList.isNotEmpty()) {
                         DropdownMenuBox(selectedVoice, voiceList) { voice -> selectedVoice = voice }
                     }
 
-                    // Sliders
-                    SliderWithLabel(label = "Stability", value = stability, onValueChange = { stability = it })
-                    SliderWithLabel(label = "Similarity", value = similarity, onValueChange = { similarity = it })
-                    SliderWithLabel(label = "Speed", value = speed, onValueChange = { speed = it })
-                    SliderWithLabel(label = "Pitch", value = pitch, onValueChange = { pitch = it })
+                    SliderWithLabel("Stability", stability) { stability = it }
+                    SliderWithLabel("Similarity", similarity) { similarity = it }
+                    SliderWithLabel("Speed", speed) { speed = it }
+                    SliderWithLabel("Pitch", pitch) { pitch = it }
 
-                    // Text input
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
@@ -88,7 +106,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.height(120.dp)
                     )
 
-                    // Generate button
                     Button(
                         onClick = {
                             val voice = selectedVoice ?: return@Button
@@ -102,12 +119,20 @@ class MainActivity : ComponentActivity() {
                                         outputFormat = "mp3"
                                     )
                                     val body = apiService.synthesize(voice.id, apiKey, request)
-                                    // Save to external files dir
-                                    val outFile = File(externalCacheDir, "${voice.name}_${System.currentTimeMillis()}.mp3")
-                                    outFile.writeBytes(body.bytes())
-                                    status = "✅ Сохранено: ${outFile.absolutePath}"
-                                } catch (e: Exception) { status = "❌ ${e.message}" }
-                                isGenerating = false
+                                    val savedPath = withContext(Dispatchers.IO) {
+                                        val outFile = File(
+                                            externalCacheDir,
+                                            "${voice.name}_${System.currentTimeMillis()}.mp3"
+                                        )
+                                        outFile.writeBytes(body.bytes())
+                                        outFile.absolutePath
+                                    }
+                                    status = "✅ Сохранено: $savedPath"
+                                } catch (e: Exception) {
+                                    status = "❌ ${e.message}"
+                                } finally {
+                                    isGenerating = false
+                                }
                             }
                         },
                         enabled = !isGenerating && apiKey.isNotBlank() && text.isNotBlank() && selectedVoice != null

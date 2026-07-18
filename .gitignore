@@ -1,0 +1,17 @@
+# Build / IDE
+build/
+.gradle/
+local.properties
+.idea/
+*.iml
+out/
+captures/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystores (если будете добавлять боевой)
+*.jks
+*.keystore
+!app/signing/debug.keystore

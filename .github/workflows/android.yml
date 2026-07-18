@@ -9,7 +9,9 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest   # macOS provides Android SDK & emulator if needed
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,20 +22,26 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Install Android SDK commandline tools
-        run: |
-          brew update
-          brew install --cask android-platform-tools
-          echo "ANDROID_SDK_ROOT=$HOME/Library/Android/sdk" >> $GITHUB_ENV
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: "34.0.0"
+          accept-licenses: true
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: assembleRelease
+          wrapper-directory: .
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ElevenAudioGenerator-release.apk
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
