@@ -13,10 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
-import com.example.eaa.model.GeneratedItem
 import com.example.eaa.ui.VoiceFilterOptions
 import com.example.eaa.ui.VoiceFilters
 import com.example.eaa.ui.applyFilters
+import com.example.eaa.ui.filterDisplay
 import com.example.eaa.util.AudioLibrary
 import com.example.eaa.util.KeychainHelper
 import kotlinx.coroutines.Dispatchers
@@ -25,10 +25,6 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.File
 
-/**
- * Главный экран: ввод ключа, выбор голоса с фильтрами, генерация.
- * Результаты смотрим в Библиотеке (кнопка в TopAppBar).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneratorScreen(
@@ -65,8 +61,14 @@ fun GeneratorScreen(
             TopAppBar(
                 title = { Text("Eleven Audio Generator") },
                 actions = {
-                    IconButton(onClick = { showFilters = true }) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Фильтры")
+                    BadgedBox(badge = {
+                        if (filters.activeCount() > 0) {
+                            Badge { Text(filters.activeCount().toString()) }
+                        }
+                    }) {
+                        IconButton(onClick = { showFilters = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Фильтры")
+                        }
                     }
                     TextButton(onClick = onOpenLibrary) {
                         Text("Библиотека", color = MaterialTheme.colorScheme.onPrimary)
@@ -266,23 +268,46 @@ private fun FiltersDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Фильтры голосов") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Фильтры голосов", modifier = Modifier.weight(1f))
+                if (filters.activeCount() > 0) {
+                    AssistChip(
+                        onClick = {
+                            category = null; gender = null; age = null; language = null
+                            useCase = null; search = ""
+                        },
+                        label = { Text("Сбросить") }
+                    )
+                }
+            }
+        },
         text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
                     OutlinedTextField(
                         value = search,
                         onValueChange = { search = it },
-                        label = { Text("Поиск") },
+                        label = { Text("Поиск по имени / описанию") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                item { ChipPicker("Категория", options.categories, category) { category = it } }
-                item { ChipPicker("Пол", options.genders, gender) { gender = it } }
-                item { ChipPicker("Возраст", options.ages, age) { age = it } }
-                item { ChipPicker("Язык/Акцент", options.languages, language) { language = it } }
-                item { ChipPicker("Use case", options.useCases, useCase) { useCase = it } }
+                item {
+                    FilterDropdown("Категория", options.categories, category) { category = it }
+                }
+                item {
+                    FilterDropdown("Пол", options.genders, gender) { gender = it }
+                }
+                item {
+                    FilterDropdown("Возраст", options.ages, age) { age = it }
+                }
+                item {
+                    FilterDropdown("Язык / Акцент", options.languages, language) { language = it }
+                }
+                item {
+                    FilterDropdown("Применение (use case)", options.useCases, useCase) { useCase = it }
+                }
             }
         },
         confirmButton = {
@@ -291,39 +316,54 @@ private fun FiltersDialog(
             }) { Text("Применить") }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = onReset) { Text("Сбросить") }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
+            TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChipPicker(label: String, values: List<String>, selected: String?, onSelect: (String?) -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
-        if (values.isEmpty()) {
-            Text("— нет данных —", style = MaterialTheme.typography.bodySmall)
-        } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = selected == null,
-                    onClick = { onSelect(null) },
-                    label = { Text("Любой") }
+private fun FilterDropdown(
+    label: String,
+    options: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = filterDisplay(selected),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Любой") },
+                onClick = { onSelect(null); expanded = false }
+            )
+            HorizontalDivider()
+            options.forEach { v ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (selected == v) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(v.replaceFirstChar { it.uppercase() })
+                        }
+                    },
+                    onClick = { onSelect(v); expanded = false }
                 )
-                values.forEach { v ->
-                    FilterChip(
-                        selected = selected == v,
-                        onClick = { onSelect(v) },
-                        label = { Text(v) },
-                        leadingIcon = if (selected == v) {
-                            { Icon(Icons.Default.Check, contentDescription = null) }
-                        } else null
-                    )
-                }
             }
         }
     }

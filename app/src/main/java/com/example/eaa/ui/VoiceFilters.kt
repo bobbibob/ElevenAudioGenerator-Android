@@ -16,8 +16,16 @@ data class VoiceFilters(
 ) {
     fun isEmpty(): Boolean =
         category == null && gender == null && age == null && language == null && useCase == null && search.isBlank()
+
+    fun activeCount(): Int =
+        listOf(category, gender, age, language, useCase).count { it != null } + (if (search.isNotBlank()) 1 else 0)
 }
 
+/**
+ * Полные наборы значений для каждого фильтра.
+ * Берём объединение: (1) то, что встречается у загруженных голосов в labels,
+ * (2) фиксированный справочник ElevenLabs, чтобы пользователь видел все варианты.
+ */
 data class VoiceFilterOptions(
     val categories: List<String>,
     val genders: List<String>,
@@ -26,20 +34,38 @@ data class VoiceFilterOptions(
     val useCases: List<String>
 ) {
     companion object {
+        // Полный справочник вариантов из ElevenLabs Voice Library
+        val ALL_CATEGORIES = listOf("premade", "cloned", "generated", "professional")
+        val ALL_GENDERS = listOf("female", "male", "neutral")
+        val ALL_AGES = listOf("young", "middle_aged", "old")
+        val ALL_LANGUAGES = listOf(
+            "en", "en-us", "en-gb", "es", "es-mx", "fr", "de", "it", "pt", "pt-br",
+            "pl", "ru", "nl", "ja", "zh", "ko", "ar", "tr", "hi", "id", "vi", "uk",
+            "cs", "da", "fi", "el", "he", "ms", "ro", "sv", "th", "bg", "fil"
+        )
+        val ALL_USE_CASES = listOf(
+            "narration", "conversational", "characters", "social media", "advertising",
+            "video games", "audiobooks", "educational", "entertainment", "informative",
+            "news", "meditation", "asmr"
+        )
+
         fun from(voices: List<Voice>): VoiceFilterOptions {
-            fun uniqueLower(keys: List<String>): List<String> =
-                voices.flatMap { v -> keys.mapNotNull { k -> v.label(k) } }
-                    .map { it.trim().lowercase() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .sorted()
+            fun union(default: List<String>, keys: List<String>): List<String> {
+                val fromVoices = voices.flatMap { v ->
+                    keys.mapNotNull { k -> v.label(k) }
+                }.map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+                return (fromVoices + default.toSet()).sorted()
+            }
 
             return VoiceFilterOptions(
-                categories = voices.mapNotNull { it.category?.lowercase() }.distinct().sorted(),
-                genders = uniqueLower(listOf("gender")),
-                ages = uniqueLower(listOf("age")),
-                languages = uniqueLower(listOf("language", "accent")),
-                useCases = uniqueLower(listOf("use case", "usecase", "description", "descriptiveness"))
+                categories = union(ALL_CATEGORIES, listOf("category")).ifEmpty { ALL_CATEGORIES },
+                genders = union(ALL_GENDERS, listOf("gender")).ifEmpty { ALL_GENDERS },
+                ages = union(ALL_AGES, listOf("age")).ifEmpty { ALL_AGES },
+                languages = union(ALL_LANGUAGES, listOf("language", "accent")).ifEmpty { ALL_LANGUAGES },
+                useCases = union(
+                    ALL_USE_CASES,
+                    listOf("use case", "usecase", "description", "descriptiveness")
+                ).ifEmpty { ALL_USE_CASES }
             )
         }
     }
@@ -65,3 +91,6 @@ fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> {
         okCategory && okGender && okAge && okLang && okUse && okSearch
     }
 }
+
+/** Удобный лейбл "Любой" / конкретное значение для UI фильтра. */
+fun filterDisplay(value: String?): String = value?.replaceFirstChar { it.uppercase() } ?: "Любой"
