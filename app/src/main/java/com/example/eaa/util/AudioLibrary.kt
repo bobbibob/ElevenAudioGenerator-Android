@@ -141,6 +141,10 @@ object AudioLibrary {
      * Имя файла при экспорте: displayName (если задан) → "<voiceName>_<ts>.mp3".
      * Расширение .mp3 всегда добавляется.
      */
+    /** Видимое имя для UI: displayName, иначе voiceName. */
+    fun visibleName(item: GeneratedItem): String =
+        item.displayName.ifBlank { item.voiceName }
+
     fun exportFileName(item: GeneratedItem): String {
         val base = item.displayName.ifBlank { "${item.voiceName}_${item.createdAt}" }
         val safe = sanitizeFileName(base)
