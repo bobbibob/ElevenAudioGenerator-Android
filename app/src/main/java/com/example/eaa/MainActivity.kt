@@ -1,6 +1,7 @@
 package com.example.eaa
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -14,14 +15,31 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
+
     private val apiService by lazy {
+        val logging = HttpLoggingInterceptor { msg -> Log.d(TAG, msg) }.apply {
+            level = HttpLoggingInterceptor.Level.BODY
+            redactHeader("xi-api-key")
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+
         Retrofit.Builder()
             .baseUrl("https://api.elevenlabs.io/v1/")
+            .client(client)
             .addConverterFactory(MoshiConverterFactory.create())
             .build()
             .create(ElevenLabsService::class.java)
@@ -39,10 +57,9 @@ class MainActivity : ComponentActivity() {
         var apiKey by remember { mutableStateOf(KeychainHelper.get(this) ?: "") }
         var selectedVoice by remember { mutableStateOf<Voice?>(null) }
         var voiceList by remember { mutableStateOf(listOf<Voice>()) }
-        var stability by remember { mutableStateOf(0.75) }
-        var similarity by remember { mutableStateOf(0.85) }
-        var speed by remember { mutableStateOf(1.0) }
-        var pitch by remember { mutableStateOf(0.0) }
+        var stability by remember { mutableStateOf(0.5) }
+        var similarity by remember { mutableStateOf(0.75) }
+        var style by remember { mutableStateOf(0.0) }
         var text by remember { mutableStateOf("") }
         var status by remember { mutableStateOf("") }
         var isGenerating by remember { mutableStateOf(false) }
@@ -74,13 +91,13 @@ class MainActivity : ComponentActivity() {
                         onClick = {
                             if (apiKey.isNotBlank() && !isLoadingVoices) {
                                 isLoadingVoices = true
+                                status = ""
                                 scope.launch {
                                     try {
                                         voiceList = apiService.fetchVoices(apiKey).voices
                                         selectedVoice = voiceList.firstOrNull()
-                                        status = ""
                                     } catch (e: Exception) {
-                                        status = "⚠️ ${e.message}"
+                                        status = friendlyError(e, "Не удалось загрузить голоса")
                                     } finally {
                                         isLoadingVoices = false
                                     }
@@ -94,10 +111,9 @@ class MainActivity : ComponentActivity() {
                         DropdownMenuBox(selectedVoice, voiceList) { voice -> selectedVoice = voice }
                     }
 
-                    SliderWithLabel("Stability", stability) { stability = it }
-                    SliderWithLabel("Similarity", similarity) { similarity = it }
-                    SliderWithLabel("Speed", speed) { speed = it }
-                    SliderWithLabel("Pitch", pitch) { pitch = it }
+                    SliderWithLabel("Stability", stability, 0f..1f) { stability = it }
+                    SliderWithLabel("Similarity", similarity, 0f..1f) { similarity = it }
+                    SliderWithLabel("Style", style, 0f..1f) { style = it }
 
                     OutlinedTextField(
                         value = text,
@@ -115,21 +131,32 @@ class MainActivity : ComponentActivity() {
                                 try {
                                     val request = SynthesizeRequest(
                                         text = text,
-                                        voiceSettings = VoiceSettings(stability, similarity, speed, pitch),
-                                        outputFormat = "mp3"
+                                        modelId = "eleven_multilingual_v2",
+                                        voiceSettings = VoiceSettings(
+                                            stability = stability,
+                                            similarityBoost = similarity,
+                                            style = style,
+                                            useSpeakerBoost = true
+                                        )
                                     )
-                                    val body = apiService.synthesize(voice.id, apiKey, request)
+                                    val body = apiService.synthesize(
+                                        voiceId = voice.id,
+                                        apiKey = apiKey,
+                                        outputFormat = "mp3_44100_128",
+                                        request = request
+                                    )
                                     val savedPath = withContext(Dispatchers.IO) {
+                                        val safeName = voice.name.replace(Regex("[^A-Za-z0-9_-]"), "_")
                                         val outFile = File(
                                             externalCacheDir,
-                                            "${voice.name}_${System.currentTimeMillis()}.mp3"
+                                            "${safeName}_${System.currentTimeMillis()}.mp3"
                                         )
                                         outFile.writeBytes(body.bytes())
                                         outFile.absolutePath
                                     }
                                     status = "✅ Сохранено: $savedPath"
                                 } catch (e: Exception) {
-                                    status = "❌ ${e.message}"
+                                    status = friendlyError(e, "Ошибка генерации")
                                 } finally {
                                     isGenerating = false
                                 }
@@ -145,10 +172,10 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun SliderWithLabel(label: String, value: Double, onValueChange: (Double) -> Unit) {
+    fun SliderWithLabel(label: String, value: Double, range: ClosedFloatingPointRange<Float>, onValueChange: (Double) -> Unit) {
         Column {
             Text("$label: ${"%.2f".format(value)}")
-            Slider(value = value.toFloat(), onValueChange = { onValueChange(it.toDouble()) }, valueRange = 0f..1f)
+            Slider(value = value.toFloat(), onValueChange = { onValueChange(it.toDouble()) }, valueRange = range)
         }
     }
 
@@ -165,5 +192,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Превращаем исключения в понятный текст, в том числе тело 4xx/5xx ответа ElevenLabs. */
+    private fun friendlyError(e: Exception, prefix: String): String {
+        Log.e(TAG, "$prefix: ${e.javaClass.simpleName}: ${e.message}", e)
+        if (e is HttpException) {
+            val code = e.code()
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull().orEmpty()
+            val detail = parseElevenLabsDetail(body)
+            return "❌ $prefix: HTTP $code${if (detail.isNotBlank()) " — $detail" else ""}"
+        }
+        return "❌ $prefix: ${e.message ?: e.javaClass.simpleName}"
+    }
+
+    /** Вытаскивает message/status из JSON-ответа ElevenLabs вида {"detail": {"status":"...","message":"..."}}. */
+    private fun parseElevenLabsDetail(body: String): String {
+        if (body.isBlank()) return ""
+        // Очень простой парсинг без зависимостей: ищем "message":"..."
+        val regex = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"")
+        val match = regex.find(body) ?: return body.take(200)
+        return match.groupValues[1].replace("\\n", " ").take(300)
+    }
+
+    companion object {
+        private const val TAG = "ElevenAudioGen"
     }
 }
