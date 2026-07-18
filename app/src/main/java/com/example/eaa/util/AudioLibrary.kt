@@ -137,10 +137,6 @@ object AudioLibrary {
     private fun encode(i: GeneratedItem): String =
         "${i.file.absolutePath}|${i.voiceId}|${i.voiceName}|${i.createdAt}|${i.displayName}"
 
-    /** Видимое имя (displayName, если задано, иначе voiceName). */
-    fun visibleName(item: GeneratedItem): String =
-        item.displayName.ifBlank { item.voiceName }
-
     /**
      * Имя файла при экспорте: displayName (если задан) → "<voiceName>_<ts>.mp3".
      * Расширение .mp3 всегда добавляется.
@@ -150,10 +146,6 @@ object AudioLibrary {
         val safe = sanitizeFileName(base)
         return if (safe.endsWith(".mp3", ignoreCase = true)) safe else "$safe.mp3"
     }
-
-    /** Человекочитаемое имя для UI: displayName, иначе voiceName. */
-    fun visibleName(item: GeneratedItem): String =
-        item.displayName.ifBlank { item.voiceName }
 
     /** Сделать имя безопасным для ФС. */
     fun sanitizeFileName(name: String): String {

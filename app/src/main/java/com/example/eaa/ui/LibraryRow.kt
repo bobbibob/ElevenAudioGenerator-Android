@@ -129,20 +129,21 @@ fun LibraryRow(
 
             // Шкала прогресса
             if (duration > 0) {
+                val dur = duration.coerceAtLeast(1).toFloat()
                 Slider(
-                    value = position.toFloat().coerceIn(0f, duration.toFloat()),
+                    value = position.toFloat().coerceIn(0f, dur),
                     onValueChange = { newPos ->
                         if (isThisPath) PlayerHolder.seekTo(newPos.toInt())
                     },
-                    valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                    valueRange = 0f..dur,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(formatMs(position), style = MaterialTheme.typography.labelSmall)
-                    Text(formatMs(duration), style = MaterialTheme.typography.labelSmall)
+                    Text(text = formatMs(position), style = MaterialTheme.typography.labelSmall)
+                    Text(text = formatMs(duration), style = MaterialTheme.typography.labelSmall)
                 }
             } else if (isThisPath) {
                 // MediaPlayer ещё не отдал duration
@@ -157,8 +158,8 @@ fun LibraryRow(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("--:--", style = MaterialTheme.typography.labelSmall)
-                    Text("--:--", style = MaterialTheme.typography.labelSmall)
+                    Text(text = "--:--", style = MaterialTheme.typography.labelSmall)
+                    Text(text = "--:--", style = MaterialTheme.typography.labelSmall)
                 }
             }
 
