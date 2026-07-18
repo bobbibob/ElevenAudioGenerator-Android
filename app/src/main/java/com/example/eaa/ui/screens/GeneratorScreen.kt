@@ -62,6 +62,13 @@ fun GeneratorScreen(
     val options = remember(voiceList) { VoiceFilterOptions.from(voiceList) }
     val filteredVoices = remember(voiceList, filters) { voiceList.applyFilters(filters) }
 
+    // --- Библиотека прямо под формой --------------------------------
+    var refreshTick by remember { mutableStateOf(0) }
+    var libraryItems by remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
+    LaunchedEffect(refreshTick) {
+        libraryItems = AudioLibrary.list(context)
+    }
+
     LaunchedEffect(apiKey) {
         if (apiKey.isNotBlank()) {
             kotlinx.coroutines.delay(500)
@@ -255,6 +262,7 @@ fun GeneratorScreen(
                                     AudioLibrary.add(context, outFile, voice.id, voice.name)
                                     outFile.absolutePath
                                 }
+                                refreshTick++
                                 status = "✅ Сохранено: $savedPath"
                             } catch (e: Exception) {
                                 status = friendlyError(e, "Ошибка генерации")
@@ -277,13 +285,6 @@ fun GeneratorScreen(
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
                 Text("Сгенерированные аудио", style = MaterialTheme.typography.titleMedium)
-            }
-
-            // Состояние списка аудио
-            var refreshTick by remember { mutableStateOf(0) }
-            var libraryItems by remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
-            LaunchedEffect(refreshTick) {
-                libraryItems = AudioLibrary.list(context)
             }
 
             if (libraryItems.isEmpty()) {
