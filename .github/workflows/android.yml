@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -29,6 +29,15 @@ jobs:
           build-tools: "34.0.0"
           accept-licenses: true
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
@@ -36,7 +45,6 @@ jobs:
         uses: gradle/gradle-build-action@v2
         with:
           arguments: assembleRelease
-          wrapper-directory: .
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
