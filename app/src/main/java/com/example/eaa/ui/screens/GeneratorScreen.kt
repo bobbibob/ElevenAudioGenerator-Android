@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
+import com.example.eaa.model.GeneratedItem
 import com.example.eaa.audio.PlayerHolder
 import com.example.eaa.ui.VoiceFilterOptions
 import com.example.eaa.ui.VoiceFilters
@@ -278,15 +279,14 @@ fun GeneratorScreen(
                 Text("Сгенерированные аудио", style = MaterialTheme.typography.titleMedium)
             }
 
-            val items = remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
-            // Перечитываем список при каждом появлении экрана и после изменений (через tick).
+            // Состояние списка аудио
             var refreshTick by remember { mutableStateOf(0) }
+            var libraryItems by remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
             LaunchedEffect(refreshTick) {
-                items.value = AudioLibrary.list(context)
+                libraryItems = AudioLibrary.list(context)
             }
 
-            // ВАЖНО: список рендерим как обычные items() внутри текущего LazyColumn
-            if (items.value.isEmpty()) {
+            if (libraryItems.isEmpty()) {
                 item {
                     Text(
                         "Пока нет аудио. Нажмите «Сгенерировать», чтобы создать первый файл.",
@@ -294,9 +294,9 @@ fun GeneratorScreen(
                     )
                 }
             } else {
-                items(items.value, key = { it.id }) { item ->
+                items(libraryItems, key = { it.id }) { libItem ->
                     LibraryRow(
-                        item = item,
+                        item = libItem,
                         refreshTick = refreshTick,
                         onTick = { refreshTick++ },
                         onRefresh = { refreshTick++ }
