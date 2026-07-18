@@ -161,9 +161,7 @@ class MainActivity : ComponentActivity() {
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 list.forEach { voice ->
-                    DropdownMenuItem(onClick = { onSelect(voice); expanded = false }) {
-                        Text(voice.name)
-                    }
+                    DropdownMenuItem(text = { Text(voice.name) }, onClick = { onSelect(voice); expanded = false })
                 }
             }
         }
