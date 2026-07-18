@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,7 @@ import com.example.eaa.ui.VoiceFilters
 import com.example.eaa.ui.applyFilters
 import com.example.eaa.ui.filterDisplay
 import com.example.eaa.util.AudioLibrary
+import com.example.eaa.util.Chunker
 import com.example.eaa.util.KeychainHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +49,7 @@ fun GeneratorScreen(
     var similarity by remember { mutableStateOf(0.75) }
     var style by remember { mutableStateOf(0.0) }
     var text by remember { mutableStateOf("") }
+    var audioTitle by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var isLoadingVoices by remember { mutableStateOf(false) }
@@ -223,7 +226,16 @@ fun GeneratorScreen(
             item { SliderWithLabel("Similarity", similarity) { similarity = it } }
             item { SliderWithLabel("Style", style) { style = it } }
 
-            // --- TEXT + GENERATE ---
+            // --- TITLE + TEXT + GENERATE ---
+            item {
+                OutlinedTextField(
+                    value = audioTitle,
+                    onValueChange = { audioTitle = it },
+                    label = { Text("Название аудио (необязательно)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             item {
                 OutlinedTextField(
                     value = text,
@@ -250,23 +262,42 @@ fun GeneratorScreen(
                                         useSpeakerBoost = true
                                     )
                                 )
-                                val body = apiService.synthesize(
-                                    voiceId = voice.id,
-                                    apiKey = apiKey,
-                                    outputFormat = "mp3_44100_128",
-                                    request = request
-                                )
-                                withContext(Dispatchers.IO) {
+                                val chunks = Chunker.split(text, maxChars = 4500)
+                                val total = chunks.size
+                                val outFile = withContext(Dispatchers.IO) {
                                     val safeName = AudioLibrary.sanitizeFileName(voice.name)
-                                    val outFile = File(
+                                    val out = File(
                                         context.externalCacheDir,
                                         "${safeName}_${System.currentTimeMillis()}.mp3"
                                     )
-                                    outFile.writeBytes(body.bytes())
-                                    AudioLibrary.add(context, outFile, voice.id, voice.name)
+                                    out.outputStream().use { sink ->
+                                        chunks.forEachIndexed { i, chunk ->
+                                            if (total > 1) {
+                                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    status = "Генерация… ${i + 1}/$total"
+                                                }
+                                            }
+                                            val part = apiService.synthesize(
+                                                voiceId = voice.id,
+                                                apiKey = apiKey,
+                                                outputFormat = "mp3_44100_128",
+                                                request = request.copy(text = chunk)
+                                            )
+                                            part.byteStream().use { it.copyTo(sink) }
+                                        }
+                                    }
+                                    out
+                                }
+                                val display = audioTitle.trim()
+                                withContext(Dispatchers.IO) {
+                                    AudioLibrary.add(
+                                        context, outFile, voice.id, voice.name,
+                                        displayName = display
+                                    )
                                 }
                                 refreshTick++
-                                status = "✅ Готово"
+                                audioTitle = ""
+                                status = if (total > 1) "✅ Готово (склеено $total частей)" else "✅ Готово"
                             } catch (e: Exception) {
                                 status = friendlyError(e, "Ошибка генерации")
                             } finally {
@@ -344,7 +375,40 @@ private fun SliderWithLabel(label: String, value: Double, onValueChange: (Double
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoicePicker(voices: List<Voice>, selected: Voice?, onSelect: (Voice) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
+    var previewingId by remember { mutableStateOf<String?>(null) }
+
+    // Воспроизведение превью
+    LaunchedEffect(previewingId) {
+        val id = previewingId ?: return@LaunchedEffect
+        val v = voices.firstOrNull { it.id == id } ?: return@LaunchedEffect
+        val url = v.previewUrl ?: return@LaunchedEffect
+        PlayerHolder.stop()
+        scope.launch {
+            val tmp = withContext(Dispatchers.IO) {
+                runCatching {
+                    val client = okhttp3.OkHttpClient()
+                    val resp = client.newCall(
+                        okhttp3.Request.Builder().url(url).build()
+                    ).execute()
+                    if (!resp.isSuccessful) return@runCatching null
+                    val body = resp.body ?: return@runCatching null
+                    val ext = url.substringAfterLast('.').take(4).ifBlank { "mp3" }
+                    val f = File.createTempFile("preview_", ".$ext", context.cacheDir)
+                    f.outputStream().use { body.byteStream().copyTo(it) }
+                    f
+                }.getOrNull()
+            }
+            if (tmp != null) {
+                PlayerHolder.toggle(tmp, onCompletion = { previewingId = null })
+            } else {
+                previewingId = null
+            }
+        }
+    }
+
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selected?.name ?: "Выберите голос",
@@ -356,17 +420,41 @@ private fun VoicePicker(voices: List<Voice>, selected: Voice?, onSelect: (Voice)
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             voices.forEach { voice ->
+                val hasPreview = !voice.previewUrl.isNullOrBlank()
+                val isPreviewing = previewingId == voice.id
                 DropdownMenuItem(
                     text = {
-                        Column {
-                            Text(voice.name)
-                            val sub = listOfNotNull(
-                                voice.category,
-                                voice.label("gender"),
-                                voice.label("accent"),
-                                voice.label("language")
-                            ).joinToString(" · ")
-                            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(voice.name)
+                                val sub = listOfNotNull(
+                                    voice.category,
+                                    voice.label("gender"),
+                                    voice.label("accent"),
+                                    voice.label("language")
+                                ).joinToString(" · ")
+                                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall)
+                            }
+                            if (hasPreview) {
+                                Spacer(Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = {
+                                        if (isPreviewing) {
+                                            PlayerHolder.stop()
+                                            previewingId = null
+                                        } else {
+                                            previewingId = voice.id
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        if (isPreviewing) Icons.Default.Stop
+                                        else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPreviewing) "Стоп" else "Превью"
+                                    )
+                                }
+                            }
                         }
                     },
                     onClick = { onSelect(voice); expanded = false }

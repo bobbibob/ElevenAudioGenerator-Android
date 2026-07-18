@@ -78,13 +78,19 @@ object AudioLibrary {
         return byPath.values.sortedByDescending { it.createdAt }
     }
 
-    fun add(context: Context, file: File, voiceId: String, voiceName: String) {
+    fun add(
+        context: Context,
+        file: File,
+        voiceId: String,
+        voiceName: String,
+        displayName: String = ""
+    ) {
         val item = GeneratedItem(
             file = file,
             voiceId = voiceId,
             voiceName = voiceName,
             createdAt = System.currentTimeMillis(),
-            displayName = ""
+            displayName = displayName
         )
         save(context, item)
     }
@@ -144,6 +150,10 @@ object AudioLibrary {
         val safe = sanitizeFileName(base)
         return if (safe.endsWith(".mp3", ignoreCase = true)) safe else "$safe.mp3"
     }
+
+    /** Человекочитаемое имя для UI: displayName, иначе voiceName. */
+    fun visibleName(item: GeneratedItem): String =
+        item.displayName.ifBlank { item.voiceName }
 
     /** Сделать имя безопасным для ФС. */
     fun sanitizeFileName(name: String): String {

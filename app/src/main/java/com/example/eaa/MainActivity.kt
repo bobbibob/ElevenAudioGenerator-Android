@@ -51,6 +51,20 @@ class MainActivity : ComponentActivity() {
                 ActivityCompat.requestPermissions(this, arrayOf(perm), 1001)
             }
         }
+        // Запрос POST_NOTIFICATIONS на Android 13+ для уведомления фонового плеера.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val perm = Manifest.permission.POST_NOTIFICATIONS
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(perm), 1002)
+            }
+        }
+        // Поднимаем foreground-сервис сразу, чтобы уведомление появилось при запуске.
+        try {
+            val svc = android.content.Intent(this, com.example.eaa.audio.PlaybackService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to start PlaybackService: ${t.message}")
+        }
 
         setContent {
             var screen by remember { mutableStateOf(Screen.GENERATOR) }
