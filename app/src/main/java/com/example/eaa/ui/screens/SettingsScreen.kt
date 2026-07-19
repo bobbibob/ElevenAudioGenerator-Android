@@ -279,7 +279,7 @@ fun SettingsScreen(
             SectionHeader(
                 icon = Icons.Default.Palette,
                 title = "Тема оформления",
-                subtitle = "Светлая — белый фон, тёмная — для ночного чтения."Системная" — как в Android."
+                subtitle = "Светлая — белый фон, тёмная — для ночного чтения.«Системная» — как в Android."
             )
 
             ElevatedCard(
