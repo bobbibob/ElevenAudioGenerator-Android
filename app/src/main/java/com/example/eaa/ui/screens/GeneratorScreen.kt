@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AttachMoney
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -158,7 +159,7 @@ fun GeneratorScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.Default.Album,
+                            Icons.Default.AccountCircle,
                             contentDescription = "Библиотека"
                         )
                     }
