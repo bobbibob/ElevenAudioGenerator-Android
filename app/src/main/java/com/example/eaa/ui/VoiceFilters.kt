@@ -104,19 +104,22 @@ fun Voice.toLike(): VoiceLike = object : VoiceLike {
     override fun label(key: String): String? = this@toLike.label(key)
 }
 
-fun SharedVoice.toLike(): VoiceLike = object : VoiceLike {
-    override val id = this@toLike.voiceId ?: publicOwnerId ?: name
-    override val name = this@toLike.name
-    override val description = this@toLike.description
-    override val category = this@toLike.category
-    override val previewUrl = this@toLike.previewUrl
-    override fun label(key: String): String? = when (key) {
-        "gender" -> this@toLike.gender
-        "age" -> this@toLike.age
-        "accent" -> this@toLike.accent
-        "language" -> this@toLike.language
-        "use case", "usecase", "use_case" -> this@toLike.useCase
-        else -> this@toLike.labels?.get(key)
+fun SharedVoice.toLike(): VoiceLike {
+    val s = this
+    return object : VoiceLike {
+        override val id: String = s.voiceId ?: s.publicOwnerId ?: s.name
+        override val name: String = s.name
+        override val description: String? = s.description
+        override val category: String? = s.category
+        override val previewUrl: String? = s.previewUrl
+        override fun label(key: String): String? = when (key) {
+            "gender" -> s.gender
+            "age" -> s.age
+            "accent" -> s.accent
+            "language" -> s.language
+            "use case", "usecase", "use_case" -> s.useCase
+            else -> s.labels?.get(key)
+        }
     }
 }
 
