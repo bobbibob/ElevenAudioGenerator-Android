@@ -609,7 +609,7 @@ private fun ClonedVoicesList(
                     }
                     androidx.compose.material3.IconButton(onClick = { onPick(v) }) {
                         Icon(
-                            androidx.compose.material.icons.Icons.Default.PersonAdd,
+                            androidx.compose.material.icons.Icons.Default.HowToReg,
                             contentDescription = "Использовать",
                             tint = MaterialTheme.colorScheme.tertiary
                         )
