@@ -1,5 +1,6 @@
 package com.example.eaa.ui
 
+import com.example.eaa.api.SharedVoice
 import com.example.eaa.api.Voice
 import com.example.eaa.api.label
 
@@ -34,27 +35,43 @@ data class VoiceFilterOptions(
     val useCases: List<String>
 ) {
     companion object {
-        // Полный справочник вариантов из ElevenLabs Voice Library
-        val ALL_CATEGORIES = listOf("premade", "cloned", "generated", "professional")
+        val ALL_CATEGORIES = listOf(
+            "premade", "cloned", "generated", "professional",
+            "community", "famous", "high_quality", "professionals"
+        )
         val ALL_GENDERS = listOf("female", "male", "neutral")
         val ALL_AGES = listOf("young", "middle_aged", "old")
         val ALL_LANGUAGES = listOf(
-            "en", "en-us", "en-gb", "es", "es-mx", "fr", "de", "it", "pt", "pt-br",
-            "pl", "ru", "nl", "ja", "zh", "ko", "ar", "tr", "hi", "id", "vi", "uk",
-            "cs", "da", "fi", "el", "he", "ms", "ro", "sv", "th", "bg", "fil"
+            "en", "en-us", "en-gb", "en-au", "en-in",
+            "es", "es-mx", "fr", "de", "it", "pt", "pt-br",
+            "pl", "ru", "nl", "ja", "zh", "ko", "ar", "tr", "hi",
+            "id", "vi", "uk", "cs", "da", "fi", "el", "he", "ms",
+            "ro", "sv", "th", "bg", "fil", "ta", "no"
         )
         val ALL_USE_CASES = listOf(
-            "narration", "conversational", "characters", "social media", "advertising",
-            "video games", "audiobooks", "educational", "entertainment", "informative",
-            "news", "meditation", "asmr"
+            "narration", "conversational", "characters", "social media",
+            "advertising", "video games", "audiobooks", "educational",
+            "entertainment", "informative", "news", "meditation", "asmr"
         )
 
-        fun from(voices: List<Voice>): VoiceFilterOptions {
+        /**
+         * Строим списки опций из загруженных голосов + объединение со справочником.
+         * [extra] — SharedVoice, пришедшие из /v1/shared-voices.
+         */
+        fun from(voices: List<Voice>, shared: List<SharedVoice> = emptyList()): VoiceFilterOptions {
             fun union(default: List<String>, keys: List<String>): List<String> {
                 val fromVoices = voices.flatMap { v ->
                     keys.mapNotNull { k -> v.label(k) }
                 }.map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
-                return (fromVoices + default.toSet()).sorted()
+
+                val fromShared = shared.flatMap { v ->
+                    listOfNotNull(
+                        v.labels?.entries?.firstOrNull { it.key in keys }?.value,
+                        v.language, v.gender, v.age, v.accent, v.useCase
+                    )
+                }.map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+
+                return (fromVoices + fromShared + default.toSet()).sorted()
             }
 
             return VoiceFilterOptions(
@@ -62,16 +79,48 @@ data class VoiceFilterOptions(
                 genders = union(ALL_GENDERS, listOf("gender")).ifEmpty { ALL_GENDERS },
                 ages = union(ALL_AGES, listOf("age")).ifEmpty { ALL_AGES },
                 languages = union(ALL_LANGUAGES, listOf("language", "accent")).ifEmpty { ALL_LANGUAGES },
-                useCases = union(
-                    ALL_USE_CASES,
-                    listOf("use case", "usecase", "description", "descriptiveness")
-                ).ifEmpty { ALL_USE_CASES }
+                useCases = union(ALL_USE_CASES, listOf("use case", "usecase", "use_case")).ifEmpty { ALL_USE_CASES }
             )
         }
     }
 }
 
-fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> {
+/** Универсальный интерфейс — чтобы фильтры работали и с приватными, и с shared голосами. */
+interface VoiceLike {
+    val id: String
+    val name: String
+    val description: String?
+    val category: String?
+    val previewUrl: String?
+    fun label(key: String): String?
+}
+
+fun Voice.toLike(): VoiceLike = object : VoiceLike {
+    override val id = this@toLike.id
+    override val name = this@toLike.name
+    override val description = this@toLike.description
+    override val category = this@toLike.category
+    override val previewUrl = this@toLike.previewUrl
+    override fun label(key: String): String? = this@toLike.label(key)
+}
+
+fun SharedVoice.toLike(): VoiceLike = object : VoiceLike {
+    override val id = this@toLike.voiceId ?: publicOwnerId ?: name
+    override val name = this@toLike.name
+    override val description = this@toLike.description
+    override val category = this@toLike.category
+    override val previewUrl = this@toLike.previewUrl
+    override fun label(key: String): String? = when (key) {
+        "gender" -> this@toLike.gender
+        "age" -> this@toLike.age
+        "accent" -> this@toLike.accent
+        "language" -> this@toLike.language
+        "use case", "usecase", "use_case" -> this@toLike.useCase
+        else -> this@toLike.labels?.get(key)
+    }
+}
+
+fun List<VoiceLike>.applyFilters(filters: VoiceFilters): List<VoiceLike> {
     if (filters.isEmpty()) return this
     return filter { v ->
         val okCategory = filters.category == null || v.category?.lowercase() == filters.category
@@ -83,8 +132,7 @@ fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> {
         val okUse = filters.useCase == null ||
             v.label("use case")?.lowercase() == filters.useCase ||
             v.label("usecase")?.lowercase() == filters.useCase ||
-            v.label("description")?.lowercase() == filters.useCase ||
-            v.label("descriptiveness")?.lowercase() == filters.useCase
+            v.label("use_case")?.lowercase() == filters.useCase
         val okSearch = filters.search.isBlank() ||
             v.name.contains(filters.search, ignoreCase = true) ||
             (v.description?.contains(filters.search, ignoreCase = true) == true)
@@ -92,5 +140,15 @@ fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> {
     }
 }
 
-/** Удобный лейбл "Любой" / конкретное значение для UI фильтра. */
+fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> =
+    map { it.toLike() }.applyFilters(filters).map { l ->
+        // Возвращаем именно Voice — нам нужно сохранить оригинальные поля.
+        first { it.id == l.id }
+    }
+
+fun List<SharedVoice>.applyFiltersShared(filters: VoiceFilters): List<SharedVoice> =
+    map { it.toLike() }.applyFilters(filters).mapNotNull { l ->
+        firstOrNull { (it.voiceId ?: it.publicOwnerId ?: it.name) == l.id }
+    }
+
 fun filterDisplay(value: String?): String = value?.replaceFirstChar { it.uppercase() } ?: "Любой"

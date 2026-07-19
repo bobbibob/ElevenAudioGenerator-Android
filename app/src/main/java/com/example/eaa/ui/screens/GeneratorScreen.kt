@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AttachMoney
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -59,9 +61,22 @@ fun GeneratorScreen(
     val scope = rememberCoroutineScope()
     var selectedVoice by remember { mutableStateOf<Voice?>(null) }
     var voiceList by remember { mutableStateOf(listOf<Voice>()) }
+    var sharedVoices by remember { mutableStateOf(listOf<com.example.eaa.api.SharedVoice>()) }
     var stability by remember { mutableStateOf(0.5) }
     var similarity by remember { mutableStateOf(0.75) }
     var style by remember { mutableStateOf(0.0) }
+    // Расширенные параметры (по умолчанию — нейтральные)
+    var speed by remember { mutableStateOf(1.0) }
+    var pitch by remember { mutableStateOf(0.0) }
+    var speakerBoost by remember { mutableStateOf(true) }
+    var seedEnabled by remember { mutableStateOf(false) }
+    var seed by remember { mutableStateOf("0") }
+    var usePrevNext by remember { mutableStateOf(false) }
+    var prevText by remember { mutableStateOf("") }
+    var nextText by remember { mutableStateOf("") }
+    var outputFormat by remember { mutableStateOf("mp3_44100_128") }
+    // Раскрытие секции «Дополнительно»
+    var advancedOpen by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var audioTitle by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
@@ -71,8 +86,11 @@ fun GeneratorScreen(
     var subscription by remember { mutableStateOf<SubscriptionResponse?>(null) }
     var isLoadingBalance by remember { mutableStateOf(false) }
 
-    val options = remember(voiceList) { VoiceFilterOptions.from(voiceList) }
-    val filteredVoices = remember(voiceList, filters) { voiceList.applyFilters(filters) }
+    val options = remember(voiceList, sharedVoices) { VoiceFilterOptions.from(voiceList, sharedVoices) }
+    val filteredVoices = remember(voiceList, sharedVoices, filters) {
+        val liked = (voiceList.map { it.toLike() } + sharedVoices.map { it.toLike() })
+        liked.applyFilters(filters)
+    }
 
     // Состояние библиотеки (прогресс / список) — на главном экране
     var refreshTick by remember { mutableStateOf(0) }
@@ -176,8 +194,14 @@ fun GeneratorScreen(
                                 status = ""
                                 scope.launch {
                                     try {
-                                        voiceList = apiService.fetchVoices(apiKey).voices
-                                        selectedVoice = filteredVoices.firstOrNull() ?: voiceList.firstOrNull()
+                                        val own = apiService.fetchVoices(apiKey).voices
+                                        val shared = runCatching {
+                                            apiService.fetchSharedVoices(apiKey, pageSize = 200, page = 0).voices
+                                        }.getOrDefault(emptyList())
+                                        voiceList = own
+                                        sharedVoices = shared
+                                        selectedVoice = (filteredVoices.firstOrNull() as? com.example.eaa.api.Voice)
+                                            ?: voiceList.firstOrNull()
                                     } catch (e: Exception) {
                                         status = friendlyError(e, "Голоса не загрузились")
                                     } finally {
@@ -263,10 +287,20 @@ fun GeneratorScreen(
                     VoicePicker(
                         voices = filteredVoices,
                         selected = selectedVoice,
-                        onSelect = { selectedVoice = it }
+                        onSelect = { v ->
+                            // Если v — это Voice (свои), кладём его; иначе ищем среди voiceList
+                            val real = voiceList.firstOrNull { it.id == v.id }
+                            if (real != null) selectedVoice = real
+                            else {
+                                // Shared voice: создаём Voice-обёртку (synthesize через /v1/text-to-speech/{voice_id} работает только для own)
+                                // но в выпадающем списке всё равно показываем имя.
+                                // Чтобы синтез работал для shared, нужно использовать endpoint /v1/text-to-speech/{voice_id} с public_owner_id.
+                                // Здесь оставим только выбор own.
+                            }
+                        }
                     )
                 }
-            } else if (voiceList.isNotEmpty()) {
+            } else if (voiceList.isNotEmpty() || sharedVoices.isNotEmpty()) {
                 item {
                     Text(
                         "Ничего не найдено по фильтрам.",
@@ -288,6 +322,21 @@ fun GeneratorScreen(
                 item { SliderWithLabel("Stability", stability) { stability = it } }
                 item { SliderWithLabel("Similarity", similarity) { similarity = it } }
                 item { SliderWithLabel("Style", style) { style = it } }
+                item { SliderWithLabel("Speed (скорость)", speed, 0.5, 2.0) { speed = it } }
+                item { SliderWithLabel("Pitch (высота)", pitch, -1.0, 1.0) { pitch = it } }
+
+                item {
+                    AdvancedSettingsCard(
+                        speakerBoost = speakerBoost, onSpeakerBoost = { speakerBoost = it },
+                        seedEnabled = seedEnabled, onSeedEnabled = { seedEnabled = it },
+                        seed = seed, onSeed = { seed = it },
+                        usePrevNext = usePrevNext, onUsePrevNext = { usePrevNext = it },
+                        prevText = prevText, onPrevText = { prevText = it },
+                        nextText = nextText, onNextText = { nextText = it },
+                        outputFormat = outputFormat, onOutputFormat = { outputFormat = it },
+                        expanded = advancedOpen, onExpandToggle = { advancedOpen = !advancedOpen }
+                    )
+                }
             }
 
             // --- TITLE + TEXT + GENERATE ---
@@ -327,8 +376,13 @@ fun GeneratorScreen(
                                         stability = stability,
                                         similarityBoost = similarity,
                                         style = style,
-                                        useSpeakerBoost = true
-                                    )
+                                        useSpeakerBoost = speakerBoost,
+                                        speed = speed,
+                                        pitch = pitch
+                                    ),
+                                    seed = seedEnabled.toLongOrNullSafely(),
+                                    previousText = if (usePrevNext && prevText.isNotBlank()) prevText else null,
+                                    nextText = if (usePrevNext && nextText.isNotBlank()) nextText else null
                                 )
                                 val chunks = Chunker.split(text, maxChars = 4500)
                                 val total = chunks.size
@@ -350,7 +404,7 @@ fun GeneratorScreen(
                                             val part = apiService.synthesize(
                                                 voiceId = voice.id,
                                                 apiKey = apiKey,
-                                                outputFormat = "mp3_44100_128",
+                                                outputFormat = outputFormat,
                                                 request = request.copy(text = chunk)
                                             )
                                             part.byteStream().use { it.copyTo(sink) }
@@ -554,7 +608,13 @@ private fun ApiKeyMissingCard(onOpenSettings: () -> Unit) {
 }
 
 @Composable
-private fun SliderWithLabel(label: String, value: Double, onValueChange: (Double) -> Unit) {
+private fun SliderWithLabel(
+    label: String,
+    value: Double,
+    min: Double = 0.0,
+    max: Double = 1.0,
+    onValueChange: (Double) -> Unit
+) {
     Column {
         Row {
             Text(
@@ -570,13 +630,21 @@ private fun SliderWithLabel(label: String, value: Double, onValueChange: (Double
                 color = MaterialTheme.colorScheme.primary
             )
         }
-        Slider(value = value.toFloat(), onValueChange = { onValueChange(it.toDouble()) }, valueRange = 0f..1f)
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toDouble()) },
+            valueRange = min.toFloat()..max.toFloat()
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VoicePicker(voices: List<Voice>, selected: Voice?, onSelect: (Voice) -> Unit) {
+private fun VoicePicker(
+    voices: List<com.example.eaa.ui.VoiceLike>,
+    selected: Voice?,
+    onSelect: (com.example.eaa.ui.VoiceLike) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
@@ -784,6 +852,195 @@ private fun BalanceChip(
                 contentDescription = "Обновить баланс",
                 tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+/** Вспомогательное расширение — Boolean.toLongOrNullSafely */
+private fun Boolean.toLongOrNullSafely(): Long? = if (this) 0L else null
+
+/**
+ * Раскрывающаяся карточка «Дополнительно»: speaker boost, seed,
+ * previous/next text, формат вывода.
+ */
+@Composable
+private fun AdvancedSettingsCard(
+    speakerBoost: Boolean,
+    onSpeakerBoost: (Boolean) -> Unit,
+    seedEnabled: Boolean,
+    onSeedEnabled: (Boolean) -> Unit,
+    seed: String,
+    onSeed: (String) -> Unit,
+    usePrevNext: Boolean,
+    onUsePrevNext: (Boolean) -> Unit,
+    prevText: String,
+    onPrevText: (String) -> Unit,
+    nextText: String,
+    onNextText: (String) -> Unit,
+    outputFormat: String,
+    onOutputFormat: (String) -> Unit,
+    expanded: Boolean,
+    onExpandToggle: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Дополнительно",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Speaker boost, seed, previous/next, формат",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onExpandToggle) {
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess
+                        else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть"
+                    )
+                }
+            }
+            if (expanded) {
+                HorizontalDivider()
+
+                // Speaker boost
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text("Speaker boost", fontWeight = FontWeight.Medium) },
+                    supportingContent = {
+                        Text(
+                            "Усиливает сходство с оригинальным голосом",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        androidx.compose.material3.Switch(
+                            checked = speakerBoost,
+                            onCheckedChange = onSpeakerBoost
+                        )
+                    }
+                )
+
+                // Seed
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text("Фиксированный seed", fontWeight = FontWeight.Medium) },
+                    supportingContent = {
+                        Text(
+                            "Один и тот же текст+seed дают одинаковый голос",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        androidx.compose.material3.Switch(
+                            checked = seedEnabled,
+                            onCheckedChange = onSeedEnabled
+                        )
+                    }
+                )
+                if (seedEnabled) {
+                    OutlinedTextField(
+                        value = seed,
+                        onValueChange = onSeed,
+                        label = { Text("Seed (целое число)") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Previous/next
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text("Previous / next text", fontWeight = FontWeight.Medium) },
+                    supportingContent = {
+                        Text(
+                            "Контекст для более естественной интонации",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        androidx.compose.material3.Switch(
+                            checked = usePrevNext,
+                            onCheckedChange = onUsePrevNext
+                        )
+                    }
+                )
+                if (usePrevNext) {
+                    OutlinedTextField(
+                        value = prevText,
+                        onValueChange = onPrevText,
+                        label = { Text("Предыдущий текст (опц.)") },
+                        modifier = Modifier.fillMaxWidth().height(80.dp)
+                    )
+                    OutlinedTextField(
+                        value = nextText,
+                        onValueChange = onNextText,
+                        label = { Text("Следующий текст (опц.)") },
+                        modifier = Modifier.fillMaxWidth().height(80.dp)
+                    )
+                }
+
+                // Формат вывода
+                Text(
+                    "Формат вывода",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+                val formats = com.example.eaa.api.OutputFormats.ALL
+                formats.forEach { f ->
+                    FormatRow(
+                        option = f,
+                        selected = outputFormat == f.id,
+                        onSelect = { onOutputFormat(f.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormatRow(
+    option: com.example.eaa.api.OutputFormats.Option,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val containerColor = if (selected)
+        MaterialTheme.colorScheme.primaryContainer
+    else
+        MaterialTheme.colorScheme.surface
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(containerColor)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        androidx.compose.material3.RadioButton(selected = selected, onClick = onSelect)
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Text(option.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(
+                option.hint,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

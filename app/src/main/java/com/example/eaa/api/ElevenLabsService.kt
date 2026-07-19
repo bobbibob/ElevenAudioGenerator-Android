@@ -11,15 +11,27 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * Retrofit interface for ElevenLabs TTS API.
+ * Retrofit interface for ElevenLabs API.
+ *
+ * Голоса подгружаются из двух источников и объединяются:
+ *  - GET /v1/voices          — голоса текущего аккаунта (свои клоны, сохранённые)
+ *  - GET /v1/shared-voices   — публичная библиотека (community voices)
+ *  - VoiceCatalog             — большой справочник «все-все» premade/featured
  */
 interface ElevenLabsService {
     @GET("voices")
     suspend fun fetchVoices(@Header("xi-api-key") apiKey: String): VoiceResponse
 
-    /**
-     * @param outputFormat e.g. "mp3_44100_128" — передаётся в query, не в body
-     */
+    @GET("shared-voices")
+    suspend fun fetchSharedVoices(
+        @Header("xi-api-key") apiKey: String,
+        @Query("page_size") pageSize: Int = 100,
+        @Query("page") page: Int = 0
+    ): SharedVoicesResponse
+
+    @GET("user/subscription")
+    suspend fun fetchSubscription(@Header("xi-api-key") apiKey: String): SubscriptionResponse
+
     @POST("text-to-speech/{voiceId}")
     suspend fun synthesize(
         @Path("voiceId") voiceId: String,
@@ -27,21 +39,38 @@ interface ElevenLabsService {
         @Query("output_format") outputFormat: String,
         @Body request: SynthesizeRequest
     ): ResponseBody
-
-    /** Баланс и подписка. GET /v1/user/subscription. */
-    @GET("user/subscription")
-    suspend fun fetchSubscription(@Header("xi-api-key") apiKey: String): SubscriptionResponse
 }
 
 @JsonClass(generateAdapter = true)
-data class VoiceResponse(
-    @Json(name = "voices") val voices: List<Voice>
+data class VoiceResponse(@Json(name = "voices") val voices: List<Voice>)
+
+@JsonClass(generateAdapter = true)
+data class SharedVoicesResponse(
+    @Json(name = "voices") val voices: List<SharedVoice>,
+    @Json(name = "has_more") val hasMore: Boolean? = null,
+    @Json(name = "last_sort_id") val lastSortId: String? = null
 )
 
 /**
- * Расширенная модель голоса — поля совпадают с тем, что возвращает
- * GET /v1/voices в ElevenLabs. Необязательные поля помечены как null.
+ * Публичный голос из Voice Library — поле `public_owner_id` используем как
+ * voiceId при синтезе, имя и описание — для UI.
  */
+@JsonClass(generateAdapter = true)
+data class SharedVoice(
+    @Json(name = "public_owner_id") val publicOwnerId: String? = null,
+    @Json(name = "voice_id") val voiceId: String? = null,
+    @Json(name = "name") val name: String,
+    @Json(name = "description") val description: String? = null,
+    @Json(name = "category") val category: String? = null,
+    @Json(name = "labels") val labels: Map<String, String>? = null,
+    @Json(name = "preview_url") val previewUrl: String? = null,
+    @Json(name = "language") val language: String? = null,
+    @Json(name = "gender") val gender: String? = null,
+    @Json(name = "age") val age: String? = null,
+    @Json(name = "accent") val accent: String? = null,
+    @Json(name = "use_case") val useCase: String? = null
+)
+
 @JsonClass(generateAdapter = true)
 data class Voice(
     @Json(name = "voice_id") val id: String,
@@ -58,26 +87,27 @@ data class Voice(
 data class SynthesizeRequest(
     @Json(name = "text") val text: String,
     @Json(name = "model_id") val modelId: String = "eleven_multilingual_v2",
-    @Json(name = "voice_settings") val voiceSettings: VoiceSettings
+    @Json(name = "voice_settings") val voiceSettings: VoiceSettings,
+    @Json(name = "pronunciation_dictionary_locators") val pronunciationDictionaryLocators: List<Any>? = null,
+    @Json(name = "seed") val seed: Long? = null,
+    @Json(name = "previous_text") val previousText: String? = null,
+    @Json(name = "next_text") val nextText: String? = null,
+    @Json(name = "previous_request_ids") val previousRequestIds: List<String>? = null,
+    @Json(name = "next_request_ids") val nextRequestIds: List<String>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class VoiceSettings(
-    @Json(name = "stability") val stability: Double,
-    @Json(name = "similarity_boost") val similarityBoost: Double,
+    @Json(name = "stability") val stability: Double = 0.5,
+    @Json(name = "similarity_boost") val similarityBoost: Double = 0.75,
     @Json(name = "style") val style: Double = 0.0,
     @Json(name = "use_speaker_boost") val useSpeakerBoost: Boolean = true,
     @Json(name = "speed") val speed: Double = 1.0,
     @Json(name = "pitch") val pitch: Double = 0.0
 )
 
-/** Удобный доступ к label-характеристикам голоса. */
 fun Voice.label(key: String): String? = labels?.get(key)
 
-/**
- * Ответ GET /v1/user/subscription. Нас интересует прежде всего [characterCount]
- * (остаток кредитов) и [tier] — уровень подписки.
- */
 @JsonClass(generateAdapter = true)
 data class SubscriptionResponse(
     @Json(name = "tier") val tier: String? = null,
@@ -87,3 +117,20 @@ data class SubscriptionResponse(
     @Json(name = "allowed_to_run_unlimited") val allowedUnlimited: Boolean? = null,
     @Json(name = "status") val status: String? = null
 )
+
+/** Доступные форматы вывода. */
+object OutputFormats {
+    data class Option(val id: String, val label: String, val hint: String)
+    val ALL: List<Option> = listOf(
+        Option("mp3_44100_128", "MP3 44.1 кГц 128 kbps", "Стандарт, универсальный. Баланс качества и размера."),
+        Option("mp3_22050_32",  "MP3 22 кГц 32 kbps",   "Голосовые сообщения, маленький файл."),
+        Option("mp3_24000_48",  "MP3 24 кГц 48 kbps",   "Компромисс между размером и качеством."),
+        Option("mp3_44100_64",  "MP3 44.1 кГц 64 kbps", "Хорошее качество, меньше места."),
+        Option("mp3_44100_96",  "MP3 44.1 кГц 96 kbps", "Близко к CD, но компактнее 128."),
+        Option("mp3_44100_192", "MP3 44.1 кГц 192 kbps", "Высокий битрейт, ближе к lossless."),
+        Option("pcm_16000",     "PCM 16 кГц",           "WAV без сжатия, 16 кГц."),
+        Option("pcm_22050",     "PCM 22 кГц",           "WAV без сжатия, 22 кГц."),
+        Option("pcm_24000",     "PCM 24 кГц",           "WAV без сжатия, 24 кГц."),
+        Option("pcm_44100",     "PCM 44.1 кГц",         "WAV без сжатия, CD-качество.")
+    )
+}

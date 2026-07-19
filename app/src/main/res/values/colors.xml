@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Светлая палитра: чистый фон, яркие teal/amber/green -->
+    <!-- Светлая палитра: чистый фон, мягкие контейнеры -->
     <color name="primary">#0D9488</color>          <!-- teal-600 -->
     <color name="onPrimary">#FFFFFF</color>
     <color name="primaryContainer">#CCFBF1</color>  <!-- teal-100 -->
@@ -9,7 +9,7 @@
     <color name="onSecondary">#FFFFFF</color>
     <color name="secondaryContainer">#FEF3C7</color>
     <color name="onSecondaryContainer">#78350F</color>
-    <color name="tertiary">#16A34A</color>          <!-- green-600 (стоимость) -->
+    <color name="tertiary">#16A34A</color>          <!-- green-600 -->
     <color name="onTertiary">#FFFFFF</color>
     <color name="tertiaryContainer">#DCFCE7</color>
     <color name="onTertiaryContainer">#14532D</color>
@@ -19,8 +19,8 @@
     <color name="onBackground">#0F172A</color>
     <color name="surface">#FFFFFF</color>
     <color name="onSurface">#0F172A</color>
-    <color name="surfaceVariant">#F1F5F9</color>
+    <color name="surfaceVariant">#F8FAFC</color>    <!-- slate-50, без серого -->
     <color name="onSurfaceVariant">#475569</color>
-    <color name="outline">#CBD5E1</color>
-    <color name="outlineVariant">#E2E8F0</color>
+    <color name="outline">#E2E8F0</color>           <!-- светлее -->
+    <color name="outlineVariant">#F1F5F9</color>
 </resources>

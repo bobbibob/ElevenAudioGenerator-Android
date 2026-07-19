@@ -38,10 +38,10 @@ private val LightColors = lightColorScheme(
     onBackground = Color(0xFF0F172A),            // slate-900
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFF1F5F9),          // slate-100
+    surfaceVariant = Color(0xFFF8FAFC),          // slate-100
     onSurfaceVariant = Color(0xFF475569),        // slate-600
-    outline = Color(0xFFCBD5E1),                 // slate-300
-    outlineVariant = Color(0xFFE2E8F0),          // slate-200
+    outline = Color(0xFFE2E8F0),                 // slate-300
+    outlineVariant = Color(0xFFF1F5F9),
 )
 
 private val DarkColors = darkColorScheme(
