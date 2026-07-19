@@ -10,10 +10,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.LibraryMusic
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -26,7 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.eaa.api.*
+import com.example.eaa.api.SubscriptionResponse
 import com.example.eaa.audio.PlayerHolder
 import com.example.eaa.model.GeneratedItem
 import com.example.eaa.ui.LibraryRow
@@ -64,6 +66,8 @@ fun GeneratorScreen(
     var isGenerating by remember { mutableStateOf(false) }
     var isLoadingVoices by remember { mutableStateOf(false) }
     var filters by remember { mutableStateOf(VoiceFilters()) }
+    var subscription by remember { mutableStateOf<SubscriptionResponse?>(null) }
+    var isLoadingBalance by remember { mutableStateOf(false) }
 
     val options = remember(voiceList) { VoiceFilterOptions.from(voiceList) }
     val filteredVoices = remember(voiceList, filters) { voiceList.applyFilters(filters) }
@@ -80,6 +84,21 @@ fun GeneratorScreen(
         saveFolderLabel = tree?.let { AudioLibrary.humanFolderName(context, it) }
     }
     LaunchedEffect(refreshTick) { refresh() }
+    LaunchedEffect(apiKey) { if (apiKey.isNotBlank()) refreshBalance() }
+
+    fun refreshBalance() {
+        if (apiKey.isBlank() || isLoadingBalance) return
+        isLoadingBalance = true
+        scope.launch {
+            try {
+                subscription = apiService.fetchSubscription(apiKey)
+            } catch (_: Exception) {
+                subscription = null
+            } finally {
+                isLoadingBalance = false
+            }
+        }
+    }
 
     val treePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -97,6 +116,13 @@ fun GeneratorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    BalanceChip(
+                        subscription = subscription,
+                        isLoading = isLoadingBalance,
+                        onRefresh = { refreshBalance() }
+                    )
+                },
                 title = {
                     Text(
                         "Eleven Audio",
@@ -106,7 +132,7 @@ fun GeneratorScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.AutoMirrored.Filled.LibraryMusic,
+                            Icons.Default.MusicNote,
                             contentDescription = "Библиотека"
                         )
                     }
@@ -120,7 +146,8 @@ fun GeneratorScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -341,6 +368,7 @@ fun GeneratorScreen(
                                 }
                                 refreshTick++
                                 audioTitle = ""
+                                refreshBalance()
                                 status = if (total > 1) "✅ Готово (склеено $total частей)" else "✅ Готово"
                             } catch (e: Exception) {
                                 status = friendlyError(e, "Ошибка генерации")
@@ -693,4 +721,64 @@ private fun friendlyError(e: Exception, prefix: String): String {
         return "❌ $prefix: HTTP $code" + if (msg.isNotBlank()) " — $msg" else ""
     }
     return "❌ $prefix: ${e.message ?: e.javaClass.simpleName}"
+}
+
+/**
+ * Маленький чип в левом углу TopAppBar с балансом ElevenLabs.
+ *
+ * Показывает «N кр.» зелёным (или янтарным, если запас мал). Тап — обновляет.
+ * Если баланс ещё не загружен или API-ключ не задан — показываем «•••».
+ */
+@Composable
+private fun BalanceChip(
+    subscription: SubscriptionResponse?,
+    isLoading: Boolean,
+    onRefresh: () -> Unit
+) {
+    val text = when {
+        isLoading && subscription == null -> "•••"
+        subscription == null -> "— кр."
+        else -> "${formatThousands(subscription.characterCount ?: 0)} кр."
+    }
+    val remaining = subscription?.characterCount ?: 0
+    val lowBalance = subscription != null && remaining in 1..999
+    val containerColor = when {
+        subscription == null -> MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f)
+        lowBalance -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(start = 8.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(containerColor)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.AccountBalanceWallet,
+            contentDescription = "Баланс",
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onPrimary,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.width(2.dp))
+        IconButton(
+            onClick = onRefresh,
+            modifier = Modifier.size(20.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "Обновить баланс",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
 }

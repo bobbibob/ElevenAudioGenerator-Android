@@ -27,6 +27,10 @@ interface ElevenLabsService {
         @Query("output_format") outputFormat: String,
         @Body request: SynthesizeRequest
     ): ResponseBody
+
+    /** Баланс и подписка. GET /v1/user/subscription. */
+    @GET("user/subscription")
+    suspend fun fetchSubscription(@Header("xi-api-key") apiKey: String): SubscriptionResponse
 }
 
 @JsonClass(generateAdapter = true)
@@ -42,9 +46,9 @@ data class VoiceResponse(
 data class Voice(
     @Json(name = "voice_id") val id: String,
     @Json(name = "name") val name: String,
-    @Json(name = "category") val category: String? = null,           // "premade" / "cloned" / "generated" / "professional"
+    @Json(name = "category") val category: String? = null,
     @Json(name = "description") val description: String? = null,
-    @Json(name = "labels") val labels: Map<String, String>? = null,    // {"accent": "american", "gender": "male", ...}
+    @Json(name = "labels") val labels: Map<String, String>? = null,
     @Json(name = "preview_url") val previewUrl: String? = null,
     @Json(name = "available_for_tiers") val availableForTiers: List<String>? = null,
     @Json(name = "settings") val settings: VoiceSettings? = null
@@ -69,3 +73,17 @@ data class VoiceSettings(
 
 /** Удобный доступ к label-характеристикам голоса. */
 fun Voice.label(key: String): String? = labels?.get(key)
+
+/**
+ * Ответ GET /v1/user/subscription. Нас интересует прежде всего [characterCount]
+ * (остаток кредитов) и [tier] — уровень подписки.
+ */
+@JsonClass(generateAdapter = true)
+data class SubscriptionResponse(
+    @Json(name = "tier") val tier: String? = null,
+    @Json(name = "character_count") val characterCount: Int? = null,
+    @Json(name = "character_limit") val characterLimit: Int? = null,
+    @Json(name = "next_character_count_reset_unix") val nextResetUnix: Long? = null,
+    @Json(name = "allowed_to_run_unlimited") val allowedUnlimited: Boolean? = null,
+    @Json(name = "status") val status: String? = null
+)
