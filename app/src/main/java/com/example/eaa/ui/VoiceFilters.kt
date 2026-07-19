@@ -143,15 +143,4 @@ fun List<VoiceLike>.applyFilters(filters: VoiceFilters): List<VoiceLike> {
     }
 }
 
-fun List<Voice>.applyFilters(filters: VoiceFilters): List<Voice> =
-    map { it.toLike() }.applyFilters(filters).map { l ->
-        // Возвращаем именно Voice — нам нужно сохранить оригинальные поля.
-        first { it.id == l.id }
-    }
-
-fun List<SharedVoice>.applyFiltersShared(filters: VoiceFilters): List<SharedVoice> =
-    map { it.toLike() }.applyFilters(filters).mapNotNull { l ->
-        firstOrNull { (it.voiceId ?: it.publicOwnerId ?: it.name) == l.id }
-    }
-
 fun filterDisplay(value: String?): String = value?.replaceFirstChar { it.uppercase() } ?: "Любой"
