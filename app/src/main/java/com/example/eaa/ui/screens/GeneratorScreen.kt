@@ -60,7 +60,7 @@ fun GeneratorScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedVoice by remember { mutableStateOf<Voice?>(null) }
+    var selectedVoice by remember { mutableStateOf<com.example.eaa.ui.VoiceLike?>(null) }
     var voiceList by remember { mutableStateOf(listOf<Voice>()) }
     var sharedVoices by remember { mutableStateOf(listOf<com.example.eaa.api.SharedVoice>()) }
     var stability by remember { mutableStateOf(0.5) }
@@ -207,7 +207,7 @@ fun GeneratorScreen(
                                         }.getOrDefault(emptyList())
                                         voiceList = own
                                         sharedVoices = shared
-                                        selectedVoice = voiceList.firstOrNull { v -> filteredVoices.any { it.id == v.id } } ?: voiceList.firstOrNull()
+                                        selectedVoice = voiceList.firstOrNull()?.toLike()
                                     } catch (e: Exception) {
                                         status = friendlyError(e, "Голоса не загрузились")
                                     } finally {
@@ -293,17 +293,7 @@ fun GeneratorScreen(
                     VoicePicker(
                         voices = filteredVoices,
                         selected = selectedVoice,
-                        onSelect = { v ->
-                            // Если v — это Voice (свои), кладём его; иначе ищем среди voiceList
-                            val real = voiceList.firstOrNull { it.id == v.id }
-                            if (real != null) selectedVoice = real
-                            else {
-                                // Shared voice: создаём Voice-обёртку (synthesize через /v1/text-to-speech/{voice_id} работает только для own)
-                                // но в выпадающем списке всё равно показываем имя.
-                                // Чтобы синтез работал для shared, нужно использовать endpoint /v1/text-to-speech/{voice_id} с public_owner_id.
-                                // Здесь оставим только выбор own.
-                            }
-                        }
+                        onSelect = { v -> selectedVoice = v }
                     )
                 }
             } else if (voiceList.isNotEmpty() || sharedVoices.isNotEmpty()) {
@@ -648,7 +638,7 @@ private fun SliderWithLabel(
 @Composable
 private fun VoicePicker(
     voices: List<com.example.eaa.ui.VoiceLike>,
-    selected: Voice?,
+    selected: com.example.eaa.ui.VoiceLike?,
     onSelect: (com.example.eaa.ui.VoiceLike) -> Unit
 ) {
     val context = LocalContext.current
