@@ -98,11 +98,14 @@ fun ElevenAudioTheme(
         darkTheme -> DarkColors
         else -> LightColors
     }
+    // statusBar/navigationBar цвета берутся из android:statusBarColor / android:navigationBarColor в themes.xml
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !darkTheme
+            controller.isAppearanceLightNavigationBars = !darkTheme
         }
     }
     MaterialTheme(

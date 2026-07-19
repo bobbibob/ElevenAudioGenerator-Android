@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AttachMoney
-import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -89,8 +88,14 @@ fun GeneratorScreen(
 
     val options = remember(voiceList, sharedVoices) { VoiceFilterOptions.from(voiceList, sharedVoices) }
     val filteredVoices = remember(voiceList, sharedVoices, filters) {
-        val liked = (voiceList.map { it.toLike() } + sharedVoices.map { it.toLike() })
-        liked.applyFilters(filters)
+        // Для языка ru подмешиваем локальный каталог (≈50 премиум-голосов ElevenLabs Voice Library)
+        val ruCatalog = com.example.eaa.util.RuVoiceCatalog.forFilter(filters.language)
+        val sources: List<com.example.eaa.ui.VoiceLike> = buildList {
+            voiceList.forEach { add(it.toLike()) }
+            sharedVoices.forEach { add(it.toLike()) }
+            ruCatalog?.forEach { add(it.toLike()) }
+        }
+        sources.applyFilters(filters)
     }
 
     // Состояние библиотеки (прогресс / список) — на главном экране
@@ -153,7 +158,7 @@ fun GeneratorScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.Default.LibraryBooks,
+                            Icons.Default.QueueMusic,
                             contentDescription = "Библиотека"
                         )
                     }
@@ -201,7 +206,7 @@ fun GeneratorScreen(
                                         }.getOrDefault(emptyList())
                                         voiceList = own
                                         sharedVoices = shared
-                                        selectedVoice = (filteredVoices.firstOrNull() as? com.example.eaa.api.Voice)
+                                        selectedVoice = (filteredVoices.firstOrNull { it is com.example.eaa.api.Voice } as? com.example.eaa.api.Voice)
                                             ?: voiceList.firstOrNull()
                                     } catch (e: Exception) {
                                         status = friendlyError(e, "Голоса не загрузились")
@@ -812,7 +817,7 @@ private fun BalanceChip(
         else -> {
             val credits = subscription.characterCount ?: 0
             val usd = com.example.eaa.util.AudioLibrary.creditsToDollars(credits)
-            "$" + String.format(java.util.Locale.US, "%.2f", usd)
+            "$" + String.format(java.util.Locale.ROOT, "%.2f", usd)
         }
     }
     val remaining = subscription?.characterCount ?: 0

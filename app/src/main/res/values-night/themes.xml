@@ -23,7 +23,10 @@
         <item name="colorOnSurfaceVariant">@color/onSurfaceVariant</item>
         <item name="colorOutline">@color/outline</item>
         <item name="colorOutlineVariant">@color/outlineVariant</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@color/primary</item>
+        <item name="android:navigationBarColor">@color/background</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">@color/background</item>
     </style>
 </resources>
