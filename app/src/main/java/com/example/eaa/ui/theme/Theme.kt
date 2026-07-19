@@ -86,10 +86,15 @@ private val AppTypography = Typography(
 
 @Composable
 fun ElevenAudioTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,           // off: чтобы палитра была стабильной
+    themeMode: com.example.eaa.util.AppSettings.ThemeMode = com.example.eaa.util.AppSettings.ThemeMode.System,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        com.example.eaa.util.AppSettings.ThemeMode.System -> isSystemInDarkTheme()
+        com.example.eaa.util.AppSettings.ThemeMode.Light -> false
+        com.example.eaa.util.AppSettings.ThemeMode.Dark -> true
+    }
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val ctx = LocalContext.current

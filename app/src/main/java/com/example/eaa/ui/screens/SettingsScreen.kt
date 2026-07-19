@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Visibility
@@ -67,7 +68,9 @@ import com.example.eaa.util.KeychainHelper
 fun SettingsScreen(
     onBack: () -> Unit,
     onApiKeyChanged: (String) -> Unit,
-    onModelChanged: (String) -> Unit = {}
+    onModelChanged: (String) -> Unit = {},
+    themeMode: com.example.eaa.util.AppSettings.ThemeMode = com.example.eaa.util.AppSettings.ThemeMode.System,
+    onThemeChanged: (com.example.eaa.util.AppSettings.ThemeMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val initial = remember { KeychainHelper.get(context).orEmpty() }
@@ -272,7 +275,32 @@ fun SettingsScreen(
                 }
             }
 
-            // Раздел «О приложении»
+            // Раздел «Тема оформления»
+            SectionHeader(
+                icon = Icons.Default.Palette,
+                title = "Тема оформления",
+                subtitle = "Светлая — белый фон, тёмная — для ночного чтения."Системная" — как в Android."
+            )
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.example.eaa.util.AppSettings.ThemeMode.entries.forEach { mode ->
+                        ThemeRadioRow(
+                            mode = mode,
+                            selected = themeMode == mode,
+                            onSelect = { onThemeChanged(mode) }
+                        )
+                    }
+                }
+            }
+
+                        // Раздел «О приложении»
             SectionHeader(
                 icon = Icons.Default.Info,
                 title = "О приложении",
@@ -385,5 +413,45 @@ private fun ModelRadioRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/** Radio-строка для выбора темы. */
+@Composable
+private fun ThemeRadioRow(
+    mode: com.example.eaa.util.AppSettings.ThemeMode,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val containerColor = if (selected)
+        MaterialTheme.colorScheme.primaryContainer
+    else
+        MaterialTheme.colorScheme.surfaceVariant
+    val (label, hint) = when (mode) {
+        com.example.eaa.util.AppSettings.ThemeMode.System ->
+            "Системная" to "Белый днём, тёмный ночью (как в Android)"
+        com.example.eaa.util.AppSettings.ThemeMode.Light ->
+            "Светлая" to "Всегда белый фон"
+        com.example.eaa.util.AppSettings.ThemeMode.Dark ->
+            "Тёмная" to "Всегда тёмный фон"
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(containerColor)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        androidx.compose.material3.RadioButton(selected = selected, onClick = onSelect)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

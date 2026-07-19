@@ -2,21 +2,20 @@ package com.example.eaa.api
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
  * Retrofit interface for ElevenLabs API.
- *
- * Голоса подгружаются из двух источников и объединяются:
- *  - GET /v1/voices          — голоса текущего аккаунта (свои клоны, сохранённые)
- *  - GET /v1/shared-voices   — публичная библиотека (community voices)
- *  - VoiceCatalog             — большой справочник «все-все» premade/featured
  */
 interface ElevenLabsService {
     @GET("voices")
@@ -39,7 +38,33 @@ interface ElevenLabsService {
         @Query("output_format") outputFormat: String,
         @Body request: SynthesizeRequest
     ): ResponseBody
+
+    /**
+     * Клонирование голоса (Instant Voice Cloning):
+     *   POST /v1/voices/add
+     * multipart/form-data:
+     *   - name: String
+     *   - files[]: аудио-файлы (sample1, sample2, ...)
+     *   - description (опц.)
+     *
+     * Возвращает voice_id нового голоса.
+     */
+    @Multipart
+    @POST("voices/add")
+    suspend fun cloneVoice(
+        @Header("xi-api-key") apiKey: String,
+        @Part("name") name: RequestBody,
+        @Part("description") description: RequestBody,
+        @Part files: List<MultipartBody.Part>,
+        @Part("labels") labels: RequestBody
+    ): CloneVoiceResponse
 }
+
+@JsonClass(generateAdapter = true)
+data class CloneVoiceResponse(
+    @Json(name = "voice_id") val voiceId: String,
+    @Json(name = "name") val name: String? = null
+)
 
 @JsonClass(generateAdapter = true)
 data class VoiceResponse(@Json(name = "voices") val voices: List<Voice>)
@@ -51,10 +76,6 @@ data class SharedVoicesResponse(
     @Json(name = "last_sort_id") val lastSortId: String? = null
 )
 
-/**
- * Публичный голос из Voice Library — поле `public_owner_id` используем как
- * voiceId при синтезе, имя и описание — для UI.
- */
 @JsonClass(generateAdapter = true)
 data class SharedVoice(
     @Json(name = "public_owner_id") val publicOwnerId: String? = null,
@@ -118,7 +139,6 @@ data class SubscriptionResponse(
     @Json(name = "status") val status: String? = null
 )
 
-/** Доступные форматы вывода. */
 object OutputFormats {
     data class Option(val id: String, val label: String, val hint: String)
     val ALL: List<Option> = listOf(

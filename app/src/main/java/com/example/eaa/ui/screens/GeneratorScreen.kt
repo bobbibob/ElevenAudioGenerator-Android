@@ -11,8 +11,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AttachMoney
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Check
@@ -56,7 +56,8 @@ fun GeneratorScreen(
     modelId: String = "eleven_multilingual_v2",
     apiService: ElevenLabsService,
     onOpenLibrary: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenCloneVoice: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -157,12 +158,6 @@ fun GeneratorScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = onOpenLibrary) {
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = "Библиотека"
-                        )
-                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             Icons.Default.Settings,
@@ -216,11 +211,22 @@ fun GeneratorScreen(
                                 }
                             }
                         },
-                        enabled = !isLoadingVoices && apiKey.isNotBlank()
+                        enabled = !isLoadingVoices && apiKey.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenCloneVoice,
+                        enabled = apiKey.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Клонировать")
                     }
 
                     Spacer(Modifier.width(12.dp))

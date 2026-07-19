@@ -3,12 +3,23 @@ package com.example.eaa.util
 import android.content.Context
 
 /**
- * Простые пользовательские настройки (модель TTS и т.п.), которые не нужно
- * прятать в Keystore. Хранятся в SharedPreferences "eaa_app_settings".
+ * Простые пользовательские настройки (модель TTS, тема и т.п.),
+ * которые не нужно прятать в Keystore. Хранятся в SharedPreferences
+ * "eaa_app_settings".
  */
 object AppSettings {
     private const val PREF_NAME = "eaa_app_settings"
     private const val KEY_MODEL = "model_id"
+    private const val KEY_THEME = "theme_mode"
+
+    enum class ThemeMode(val key: String) {
+        System("system"),
+        Light("light"),
+        Dark("dark");
+        companion object {
+            fun fromKey(k: String?): ThemeMode = entries.firstOrNull { it.key == k } ?: System
+        }
+    }
 
     /** Доступные модели. */
     data class ModelOption(val id: String, val label: String, val hint: String)
@@ -41,5 +52,15 @@ object AppSettings {
         if (MODELS.none { it.id == modelId }) return
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_MODEL, modelId).apply()
+    }
+
+    fun getTheme(context: Context): ThemeMode {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return ThemeMode.fromKey(prefs.getString(KEY_THEME, ThemeMode.System.key))
+    }
+
+    fun setTheme(context: Context, mode: ThemeMode) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_THEME, mode.key).apply()
     }
 }

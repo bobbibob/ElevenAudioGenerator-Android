@@ -15,6 +15,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.eaa.api.ElevenLabsService
 import com.example.eaa.audio.PlayerHolder
+import com.example.eaa.ui.screens.CloneVoiceScreen
 import com.example.eaa.ui.screens.GeneratorScreen
 import com.example.eaa.ui.screens.LibraryScreen
 import com.example.eaa.ui.screens.SettingsScreen
@@ -71,7 +72,10 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            ElevenAudioTheme {
+            val initialTheme = remember { AppSettings.getTheme(this) }
+            var themeMode by remember { mutableStateOf(initialTheme) }
+
+            ElevenAudioTheme(themeMode = themeMode) {
                 var screen by remember { mutableStateOf(Screen.GENERATOR) }
                 var apiKey by remember { mutableStateOf(KeychainHelper.get(this).orEmpty()) }
                 var modelId by remember { mutableStateOf(AppSettings.getModel(this)) }
@@ -82,7 +86,8 @@ class MainActivity : ComponentActivity() {
                         modelId = modelId,
                         apiService = apiService,
                         onOpenLibrary = { screen = Screen.LIBRARY },
-                        onOpenSettings = { screen = Screen.SETTINGS }
+                        onOpenSettings = { screen = Screen.SETTINGS },
+                        onOpenCloneVoice = { screen = Screen.CLONE }
                     )
                     Screen.LIBRARY -> LibraryScreen(
                         onBack = { screen = Screen.GENERATOR }
@@ -90,7 +95,17 @@ class MainActivity : ComponentActivity() {
                     Screen.SETTINGS -> SettingsScreen(
                         onBack = { screen = Screen.GENERATOR },
                         onApiKeyChanged = { apiKey = it },
-                        onModelChanged = { modelId = it }
+                        onModelChanged = { modelId = it },
+                        themeMode = themeMode,
+                        onThemeChanged = { newMode ->
+                            themeMode = newMode
+                            AppSettings.setTheme(this, newMode)
+                        }
+                    )
+                    Screen.CLONE -> CloneVoiceScreen(
+                        apiKey = apiKey,
+                        apiService = apiService,
+                        onBack = { screen = Screen.GENERATOR }
                     )
                 }
             }
@@ -101,7 +116,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private enum class Screen { GENERATOR, LIBRARY, SETTINGS }
+    private enum class Screen { GENERATOR, LIBRARY, SETTINGS, CLONE }
 
     companion object {
         private const val TAG = "ElevenAudioGen"
