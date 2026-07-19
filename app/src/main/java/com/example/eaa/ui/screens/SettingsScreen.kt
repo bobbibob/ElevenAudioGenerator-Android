@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,7 +22,6 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Visibility
@@ -41,13 +42,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,33 +66,22 @@ import com.example.eaa.util.KeychainHelper
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onApiKeyChanged: (String) -> Unit
+    onApiKeyChanged: (String) -> Unit,
+    onModelChanged: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val initial = remember { KeychainHelper.get(context).orEmpty() }
     var draft by remember { mutableStateOf(initial) }
     var visible by remember { mutableStateOf(initial.isBlank()) }   // если ключ уже был — начнём скрытым
-    var saved by remember { mutableStateOf(true) }
 
-    val isValid by remember {
-        derivedStateOf { draft.trim().length >= 8 }
-    }
+    // 2) Локальный state сохранения: enabled пока draft != initial И draft валиден
+    val isValid = draft.trim().length >= 8
+    val dirty = draft != initial
 
-    // Авто-сохранение с debounce ~600 мс — как и в старом генераторе.
-    LaunchedEffect(draft) {
-        snapshotFlow { draft }.collect { current ->
-            kotlinx.coroutines.delay(600)
-            if (current == draft && current != initial && current.isNotBlank()) {
-                KeychainHelper.set(context, current)
-                onApiKeyChanged(current)
-                saved = true
-            } else if (current.isBlank() && initial.isNotBlank()) {
-                KeychainHelper.set(context, "")
-                onApiKeyChanged("")
-                saved = true
-            }
-        }
-    }
+    // 3) Модель TTS
+    val models = remember { com.example.eaa.util.AppSettings.MODELS }
+    val initialModel = remember { com.example.eaa.util.AppSettings.getModel(context) }
+    var modelId by remember { mutableStateOf(initialModel) }
 
     Scaffold(
         topBar = {
@@ -133,10 +120,7 @@ fun SettingsScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = draft,
-                        onValueChange = {
-                            draft = it
-                            saved = false
-                        },
+                        onValueChange = { draft = it },
                         label = { Text("API-ключ") },
                         placeholder = { Text("xi-api-key…") },
                         singleLine = true,
@@ -182,11 +166,11 @@ fun SettingsScreen(
                             }
                         )
                         Spacer(Modifier.width(8.dp))
-                        if (!saved) {
+                        if (dirty) {
                             Text(
-                                "Изменения сохраняются автоматически…",
+                                "Есть несохранённые изменения",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.secondary
                             )
                         } else if (initial.isNotBlank()) {
                             Text(
@@ -203,10 +187,10 @@ fun SettingsScreen(
                                 if (draft.isNotBlank()) {
                                     KeychainHelper.set(context, draft)
                                     onApiKeyChanged(draft)
-                                    saved = true
+                                    // key saved
                                 }
                             },
-                            enabled = !saved && isValid
+                            enabled = dirty && isValid
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
@@ -218,7 +202,7 @@ fun SettingsScreen(
                                 draft = ""
                                 KeychainHelper.set(context, "")
                                 onApiKeyChanged("")
-                                saved = true
+                                // key saved
                             }
                         ) { Text("Очистить") }
                     }
@@ -253,28 +237,37 @@ fun SettingsScreen(
                 }
             }
 
-            // Раздел «Качество»
+            // Раздел «Модель TTS»
             SectionHeader(
                 icon = Icons.Default.Speed,
-                title = "Качество по умолчанию",
-                subtitle = "Эти настройки применяются к новой генерации. Их можно крутить в форме генератора."
+                title = "Модель синтеза",
+                subtitle = "От модели зависит качество, скорость и стоимость генерации."
             )
 
-            Card(
+            ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
+                colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Модель: eleven_multilingual_v2", style = MaterialTheme.typography.bodyMedium)
-                    Text("Формат: mp3_44100_128", style = MaterialTheme.typography.bodyMedium)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    models.forEach { m ->
+                        ModelRadioRow(
+                            model = m,
+                            selected = modelId == m.id,
+                            onSelect = {
+                                modelId = m.id
+                                com.example.eaa.util.AppSettings.setModel(context, m.id)
+                                onModelChanged(m.id)
+                            }
+                        )
+                    }
+                    HorizontalDivider()
                     Text(
-                        "Стоимость: ~1 кредит ElevenLabs за символ",
+                        "Формат аудио: mp3_44100_128",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        fontWeight = FontWeight.Medium
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -348,5 +341,49 @@ private fun SectionHeader(
                 modifier = Modifier.padding(start = 42.dp)
             )
         }
+    }
+}
+
+/** Radio-строка для выбора модели TTS. */
+@Composable
+private fun ModelRadioRow(
+    model: com.example.eaa.util.AppSettings.ModelOption,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val containerColor = if (selected)
+        MaterialTheme.colorScheme.primaryContainer
+    else
+        MaterialTheme.colorScheme.surfaceVariant
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(containerColor)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        androidx.compose.material3.RadioButton(
+            selected = selected,
+            onClick = onSelect
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                model.label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                model.hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            model.id,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Базовая палитра (Material3 → light) -->
-    <color name="primary">#0EA5A4</color>          <!-- teal-500 -->
+    <!-- Светлая палитра: чистый фон, яркие teal/amber/green -->
+    <color name="primary">#0D9488</color>          <!-- teal-600 -->
     <color name="onPrimary">#FFFFFF</color>
-    <color name="primaryContainer">#CFF6F5</color>  <!-- teal-100 -->
-    <color name="onPrimaryContainer">#042F2E</color>
-    <color name="secondary">#F59E0B</color>         <!-- amber-500 (акцент) -->
-    <color name="onSecondary">#1F1300</color>
+    <color name="primaryContainer">#CCFBF1</color>  <!-- teal-100 -->
+    <color name="onPrimaryContainer">#134E4A</color>
+    <color name="secondary">#F59E0B</color>         <!-- amber-500 -->
+    <color name="onSecondary">#FFFFFF</color>
     <color name="secondaryContainer">#FEF3C7</color>
-    <color name="onSecondaryContainer">#3F2A00</color>
-    <color name="tertiary">#22C55E</color>          <!-- green-500 (стоимость) -->
+    <color name="onSecondaryContainer">#78350F</color>
+    <color name="tertiary">#16A34A</color>          <!-- green-600 (стоимость) -->
     <color name="onTertiary">#FFFFFF</color>
     <color name="tertiaryContainer">#DCFCE7</color>
-    <color name="onTertiaryContainer">#052E10</color>
+    <color name="onTertiaryContainer">#14532D</color>
     <color name="error">#DC2626</color>
     <color name="onError">#FFFFFF</color>
-    <color name="background">#FAFAFA</color>
+    <color name="background">#FFFFFF</color>
     <color name="onBackground">#0F172A</color>
     <color name="surface">#FFFFFF</color>
     <color name="onSurface">#0F172A</color>

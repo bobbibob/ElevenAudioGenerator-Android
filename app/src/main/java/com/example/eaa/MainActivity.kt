@@ -19,6 +19,7 @@ import com.example.eaa.ui.screens.GeneratorScreen
 import com.example.eaa.ui.screens.LibraryScreen
 import com.example.eaa.ui.screens.SettingsScreen
 import com.example.eaa.ui.theme.ElevenAudioTheme
+import com.example.eaa.util.AppSettings
 import com.example.eaa.util.KeychainHelper
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -50,21 +51,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Запрос WRITE_EXTERNAL_STORAGE на старых Android (для экспорта в Music/).
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val perm = Manifest.permission.WRITE_EXTERNAL_STORAGE
             if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(perm), 1001)
             }
         }
-        // Запрос POST_NOTIFICATIONS на Android 13+ для уведомления фонового плеера.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val perm = Manifest.permission.POST_NOTIFICATIONS
             if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(perm), 1002)
             }
         }
-        // Поднимаем foreground-сервис сразу, чтобы уведомление появилось при запуске.
         try {
             val svc = android.content.Intent(this, com.example.eaa.audio.PlaybackService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
@@ -75,12 +73,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             ElevenAudioTheme {
                 var screen by remember { mutableStateOf(Screen.GENERATOR) }
-                // Единое состояние ключа для всех экранов. Инициализируется из Keystore.
                 var apiKey by remember { mutableStateOf(KeychainHelper.get(this).orEmpty()) }
+                var modelId by remember { mutableStateOf(AppSettings.getModel(this)) }
 
                 when (screen) {
                     Screen.GENERATOR -> GeneratorScreen(
                         apiKey = apiKey,
+                        modelId = modelId,
                         apiService = apiService,
                         onOpenLibrary = { screen = Screen.LIBRARY },
                         onOpenSettings = { screen = Screen.SETTINGS }
@@ -90,7 +89,8 @@ class MainActivity : ComponentActivity() {
                     )
                     Screen.SETTINGS -> SettingsScreen(
                         onBack = { screen = Screen.GENERATOR },
-                        onApiKeyChanged = { apiKey = it }
+                        onApiKeyChanged = { apiKey = it },
+                        onModelChanged = { modelId = it }
                     )
                 }
             }
@@ -99,9 +99,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Не освобождаем плеер здесь — пусть играет после выхода. Если хотите
-        // остановить при уходе — раскомментируйте:
-        // PlayerHolder.stop()
     }
 
     private enum class Screen { GENERATOR, LIBRARY, SETTINGS }

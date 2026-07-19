@@ -10,8 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.outlined.AttachMoney
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
@@ -50,6 +50,7 @@ import java.io.File
 @Composable
 fun GeneratorScreen(
     apiKey: String,
+    modelId: String = "eleven_multilingual_v2",
     apiService: ElevenLabsService,
     onOpenLibrary: () -> Unit,
     onOpenSettings: () -> Unit
@@ -133,7 +134,7 @@ fun GeneratorScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.Default.MusicNote,
+                            Icons.Default.LibraryBooks,
                             contentDescription = "Библиотека"
                         )
                     }
@@ -321,7 +322,7 @@ fun GeneratorScreen(
                             try {
                                 val request = SynthesizeRequest(
                                     text = text,
-                                    modelId = "eleven_multilingual_v2",
+                                    modelId = modelId,
                                     voiceSettings = VoiceSettings(
                                         stability = stability,
                                         similarityBoost = similarity,
@@ -332,7 +333,7 @@ fun GeneratorScreen(
                                 val chunks = Chunker.split(text, maxChars = 4500)
                                 val total = chunks.size
                                 val totalChars = text.trim().length
-                                val cost = AudioLibrary.estimateCostCredits(totalChars)
+                                val cost = AudioLibrary.estimateCostCredits(totalChars, modelId)
                                 val outFile = withContext(Dispatchers.IO) {
                                     val safeName = AudioLibrary.sanitizeFileName(voice.name)
                                     val out = File(
@@ -455,7 +456,7 @@ fun GeneratorScreen(
 @Composable
 private fun GenerationSummary(text: String) {
     val chars = text.trim().length
-    val cost = AudioLibrary.estimateCostCredits(chars)
+    val cost = AudioLibrary.estimateCostCredits(chars, modelId)
     val chunks = Chunker.split(text, maxChars = 4500).size
     val canGenerate = chars > 0
 
@@ -738,8 +739,12 @@ private fun BalanceChip(
 ) {
     val text = when {
         isLoading && subscription == null -> "•••"
-        subscription == null -> "— кр."
-        else -> "${formatThousands(subscription.characterCount ?: 0)} кр."
+        subscription == null -> "—"
+        else -> {
+            val credits = subscription.characterCount ?: 0
+            val usd = com.example.eaa.util.AudioLibrary.creditsToDollars(credits)
+            "$" + String.format(java.util.Locale.US, "%.2f", usd)
+        }
     }
     val remaining = subscription?.characterCount ?: 0
     val lowBalance = subscription != null && remaining in 1..999
@@ -757,7 +762,7 @@ private fun BalanceChip(
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Icon(
-            imageVector = Icons.Default.AccountBalanceWallet,
+            imageVector = Icons.Outlined.AttachMoney,
             contentDescription = "Баланс",
             tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(16.dp)

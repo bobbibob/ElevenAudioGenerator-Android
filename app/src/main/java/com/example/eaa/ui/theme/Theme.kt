@@ -20,35 +20,35 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF0EA5A4),
+    primary = Color(0xFF0D9488),                // teal-600
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFCFF6F5),
-    onPrimaryContainer = Color(0xFF042F2E),
-    secondary = Color(0xFFF59E0B),
-    onSecondary = Color(0xFF1F1300),
-    secondaryContainer = Color(0xFFFEF3C7),
-    onSecondaryContainer = Color(0xFF3F2A00),
-    tertiary = Color(0xFF22C55E),
+    primaryContainer = Color(0xFFCCFBF1),        // teal-100
+    onPrimaryContainer = Color(0xFF134E4A),      // teal-900
+    secondary = Color(0xFFF59E0B),               // amber-500
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFFEF3C7),      // amber-100
+    onSecondaryContainer = Color(0xFF78350F),    // amber-900
+    tertiary = Color(0xFF16A34A),                // green-600
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFDCFCE7),
-    onTertiaryContainer = Color(0xFF052E10),
+    tertiaryContainer = Color(0xFFDCFCE7),       // green-100
+    onTertiaryContainer = Color(0xFF14532D),     // green-900
     error = Color(0xFFDC2626),
     onError = Color(0xFFFFFFFF),
-    background = Color(0xFFFAFAFA),
-    onBackground = Color(0xFF0F172A),
+    background = Color(0xFFFFFFFF),
+    onBackground = Color(0xFF0F172A),            // slate-900
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFF1F5F9),
-    onSurfaceVariant = Color(0xFF475569),
-    outline = Color(0xFFCBD5E1),
-    outlineVariant = Color(0xFFE2E8F0),
+    surfaceVariant = Color(0xFFF1F5F9),          // slate-100
+    onSurfaceVariant = Color(0xFF475569),        // slate-600
+    outline = Color(0xFFCBD5E1),                 // slate-300
+    outlineVariant = Color(0xFFE2E8F0),          // slate-200
 )
 
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF5EEAD4),
     onPrimary = Color(0xFF042F2E),
     primaryContainer = Color(0xFF0F766E),
-    onPrimaryContainer = Color(0xFFCFF6F5),
+    onPrimaryContainer = Color(0xFFCCFBF1),
     secondary = Color(0xFFFBBF24),
     onSecondary = Color(0xFF3F2A00),
     secondaryContainer = Color(0xFF92400E),
@@ -87,7 +87,7 @@ private val AppTypography = Typography(
 @Composable
 fun ElevenAudioTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,           // off: чтобы палитра была стабильной
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

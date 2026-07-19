@@ -307,8 +307,18 @@ object AudioLibrary {
 
     /**
      * Оценка стоимости в кредитах ElevenLabs.
-     * Multilingual v2 — примерно 1 кредит на символ (грубая, но стабильная оценка).
-     * Пользователь видит «~N кр.» рядом со сгенерированным треком.
+     * Зависит от выбранной модели: Multilingual v2 ≈ 1 кр./символ, Turbo v2.5 ≈ 0.5,
+     * Flash v2.5 ≈ 0.3. Пользователь видит «~N кр.» рядом со сгенерированным треком.
      */
-    fun estimateCostCredits(characterCount: Int): Int = characterCount.coerceAtLeast(0)
+    fun estimateCostCredits(characterCount: Int, modelId: String = "eleven_multilingual_v2"): Int {
+        val perChar = when (modelId) {
+            "eleven_flash_v2_5" -> 0.3
+            "eleven_turbo_v2_5" -> 0.5
+            else -> 1.0
+        }
+        return (characterCount * perChar).toInt().coerceAtLeast(0)
+    }
+
+    /** Стоимость кредитов в долларах: /bin/zsh.30 за 1000 кредитов (по тарифу ElevenLabs Creator). */
+    fun creditsToDollars(credits: Int): Double = credits * 0.0003
 }
