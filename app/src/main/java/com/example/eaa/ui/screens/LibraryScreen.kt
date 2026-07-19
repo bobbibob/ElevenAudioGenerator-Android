@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -14,15 +15,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.eaa.audio.PlayerHolder
 import com.example.eaa.model.GeneratedItem
 import com.example.eaa.ui.LibraryRow
 import com.example.eaa.ui.SaveFolderChip
 import com.example.eaa.util.AudioLibrary
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -34,7 +33,6 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LibraryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<GeneratedItem>>(emptyList()) }
     var saveFolderLabel by remember { mutableStateOf<String?>(null) }
     var saveInProgressPath by remember { mutableStateOf<String?>(null) }
@@ -47,12 +45,10 @@ fun LibraryScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { refresh() }
 
-    // Системный пикер папки (SAF, Android 5+).
     val treePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Требуется persistent permission, чтобы файл был доступен после рестарта.
             val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
@@ -65,7 +61,12 @@ fun LibraryScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Библиотека (${items.size})") },
+                title = {
+                    Text(
+                        "Библиотека (${items.size})",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -75,7 +76,13 @@ fun LibraryScreen(onBack: () -> Unit) {
                     IconButton(onClick = { refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Обновить")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
             )
         }
     ) { padding ->
@@ -96,7 +103,7 @@ fun LibraryScreen(onBack: () -> Unit) {
                         saveFolderLabel = null
                         Toast.makeText(
                             context,
-                            "Падёт сброс: снова Music/ElevenAudioGenerator",
+                            "Сброс: снова Music/ElevenAudioGenerator",
                             Toast.LENGTH_SHORT
                         ).show()
                     }) { Text("Сбросить") }
@@ -106,7 +113,11 @@ fun LibraryScreen(onBack: () -> Unit) {
 
             if (items.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Пока нет сгенерированных аудио. Создайте первую запись на главной.")
+                    Text(
+                        "Пока нет сгенерированных аудио. Создайте первую запись на главной.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 return@Column
             }

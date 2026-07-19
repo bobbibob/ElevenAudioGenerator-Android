@@ -15,6 +15,10 @@ import java.io.File
  *
  * Список берётся не только из SharedPreferences, но и с диска (externalCacheDir),
  * так что даже если реестр потерян/старый — потерянные MP3 всё равно появятся в UI.
+ *
+ * Формат строки в реестре:
+ *   path|voiceId|voiceName|createdAt|displayName|charCount|chunkCount|costCredits
+ * Поля 6..8 добавлены в новой версии; для старых записей они будут пустыми.
  */
 object AudioLibrary {
 
@@ -50,11 +54,13 @@ object AudioLibrary {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getStringSet(PREF_KEY, emptySet()) ?: emptySet()
         for (line in raw) {
-            // Формат: path|voiceId|voiceName|createdAt|displayName(displayName может отсутствовать)
-            val parts = line.split("|", limit = 5)
+            val parts = line.split("|", limit = 8)
             if (parts.size < 4) continue
             val (path, voiceId, voiceName, ts) = parts
             val displayName = if (parts.size >= 5) parts[4] else ""
+            val charCount = if (parts.size >= 6) parts[5].toIntOrNull() ?: 0 else 0
+            val chunkCount = if (parts.size >= 7) parts[6].toIntOrNull() ?: 1 else 1
+            val cost = if (parts.size >= 8) parts[7].toIntOrNull() ?: 0 else 0
             val f = File(path)
             if (f.exists()) {
                 byPath[path] = GeneratedItem(
@@ -62,7 +68,10 @@ object AudioLibrary {
                     voiceId = voiceId,
                     voiceName = voiceName,
                     createdAt = ts.toLongOrNull() ?: f.lastModified(),
-                    displayName = displayName
+                    displayName = displayName,
+                    characterCount = charCount,
+                    chunkCount = chunkCount,
+                    costCredits = cost
                 )
             } else {
                 Log.w(TAG, "Registry references missing file: $path — будет удалён из реестра")
@@ -83,14 +92,20 @@ object AudioLibrary {
         file: File,
         voiceId: String,
         voiceName: String,
-        displayName: String = ""
+        displayName: String = "",
+        characterCount: Int = 0,
+        chunkCount: Int = 1,
+        costCredits: Int = 0
     ) {
         val item = GeneratedItem(
             file = file,
             voiceId = voiceId,
             voiceName = voiceName,
             createdAt = System.currentTimeMillis(),
-            displayName = displayName
+            displayName = displayName,
+            characterCount = characterCount,
+            chunkCount = chunkCount,
+            costCredits = costCredits
         )
         save(context, item)
     }
@@ -135,12 +150,8 @@ object AudioLibrary {
     }
 
     private fun encode(i: GeneratedItem): String =
-        "${i.file.absolutePath}|${i.voiceId}|${i.voiceName}|${i.createdAt}|${i.displayName}"
+        "${i.file.absolutePath}|${i.voiceId}|${i.voiceName}|${i.createdAt}|${i.displayName}|${i.characterCount}|${i.chunkCount}|${i.costCredits}"
 
-    /**
-     * Имя файла при экспорте: displayName (если задан) → "<voiceName>_<ts>.mp3".
-     * Расширение .mp3 всегда добавляется.
-     */
     /** Видимое имя для UI: displayName, иначе voiceName. */
     fun visibleName(item: GeneratedItem): String =
         item.displayName.ifBlank { item.voiceName }
@@ -235,7 +246,6 @@ object AudioLibrary {
                 android.provider.DocumentsContract.getTreeDocumentId(treeUri)
             )
             val resolver = context.contentResolver
-            // Проверяем, нет ли уже файла с таким именем — если есть, дописываем (1), (2)…
             var name = displayName
             val ext = ".mp3"
             val stem = if (name.endsWith(ext, ignoreCase = true)) name.dropLast(ext.length) else name
@@ -294,4 +304,11 @@ object AudioLibrary {
             }
         }.getOrNull()
     }
+
+    /**
+     * Оценка стоимости в кредитах ElevenLabs.
+     * Multilingual v2 — примерно 1 кредит на символ (грубая, но стабильная оценка).
+     * Пользователь видит «~N кр.» рядом со сгенерированным треком.
+     */
+    fun estimateCostCredits(characterCount: Int): Int = characterCount.coerceAtLeast(0)
 }

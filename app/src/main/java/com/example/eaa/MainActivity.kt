@@ -7,13 +7,19 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.eaa.api.ElevenLabsService
 import com.example.eaa.audio.PlayerHolder
 import com.example.eaa.ui.screens.GeneratorScreen
 import com.example.eaa.ui.screens.LibraryScreen
+import com.example.eaa.ui.screens.SettingsScreen
+import com.example.eaa.ui.theme.ElevenAudioTheme
+import com.example.eaa.util.KeychainHelper
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -67,13 +73,26 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            var screen by remember { mutableStateOf(Screen.GENERATOR) }
-            when (screen) {
-                Screen.GENERATOR -> GeneratorScreen(
-                    apiService = apiService,
-                    onOpenLibrary = { screen = Screen.LIBRARY }
-                )
-                Screen.LIBRARY -> LibraryScreen(onBack = { screen = Screen.GENERATOR })
+            ElevenAudioTheme {
+                var screen by remember { mutableStateOf(Screen.GENERATOR) }
+                // Единое состояние ключа для всех экранов. Инициализируется из Keystore.
+                var apiKey by remember { mutableStateOf(KeychainHelper.get(this).orEmpty()) }
+
+                when (screen) {
+                    Screen.GENERATOR -> GeneratorScreen(
+                        apiKey = apiKey,
+                        apiService = apiService,
+                        onOpenLibrary = { screen = Screen.LIBRARY },
+                        onOpenSettings = { screen = Screen.SETTINGS }
+                    )
+                    Screen.LIBRARY -> LibraryScreen(
+                        onBack = { screen = Screen.GENERATOR }
+                    )
+                    Screen.SETTINGS -> SettingsScreen(
+                        onBack = { screen = Screen.GENERATOR },
+                        onApiKeyChanged = { apiKey = it }
+                    )
+                }
             }
         }
     }
@@ -85,7 +104,7 @@ class MainActivity : ComponentActivity() {
         // PlayerHolder.stop()
     }
 
-    private enum class Screen { GENERATOR, LIBRARY }
+    private enum class Screen { GENERATOR, LIBRARY, SETTINGS }
 
     companion object {
         private const val TAG = "ElevenAudioGen"

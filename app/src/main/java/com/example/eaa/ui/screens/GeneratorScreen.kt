@@ -4,19 +4,27 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryMusic
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.eaa.api.*
 import com.example.eaa.audio.PlayerHolder
@@ -29,7 +37,6 @@ import com.example.eaa.ui.applyFilters
 import com.example.eaa.ui.filterDisplay
 import com.example.eaa.util.AudioLibrary
 import com.example.eaa.util.Chunker
-import com.example.eaa.util.KeychainHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,12 +46,13 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneratorScreen(
+    apiKey: String,
     apiService: ElevenLabsService,
-    onOpenLibrary: () -> Unit
+    onOpenLibrary: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var apiKey by remember { mutableStateOf(KeychainHelper.get(context) ?: "") }
     var selectedVoice by remember { mutableStateOf<Voice?>(null) }
     var voiceList by remember { mutableStateOf(listOf<Voice>()) }
     var stability by remember { mutableStateOf(0.5) }
@@ -73,13 +81,6 @@ fun GeneratorScreen(
     }
     LaunchedEffect(refreshTick) { refresh() }
 
-    LaunchedEffect(apiKey) {
-        if (apiKey.isNotBlank()) {
-            kotlinx.coroutines.delay(500)
-            KeychainHelper.set(context, apiKey)
-        }
-    }
-
     val treePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
@@ -96,36 +97,44 @@ fun GeneratorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Eleven Audio Generator") },
+                title = {
+                    Text(
+                        "Eleven Audio",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
                 actions = {
-                    TextButton(onClick = onOpenLibrary) {
+                    IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.Default.LibraryMusic,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp)
+                            Icons.AutoMirrored.Filled.LibraryMusic,
+                            contentDescription = "Библиотека"
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text("Библиотека", color = MaterialTheme.colorScheme.onPrimary)
                     }
-                }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Настройки"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
             )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // --- API KEY ---
-            item {
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("ElevenLabs API‑key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            // Если API-ключ не задан — красивый баннер
+            if (apiKey.isBlank()) {
+                item {
+                    ApiKeyMissingCard(onOpenSettings = onOpenSettings)
+                }
             }
 
             // --- LOAD VOICES ---
@@ -149,13 +158,18 @@ fun GeneratorScreen(
                             }
                         },
                         enabled = !isLoadingVoices && apiKey.isNotBlank()
-                    ) { Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса") }
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (isLoadingVoices) "Загружаем…" else "Загрузить голоса")
+                    }
 
                     Spacer(Modifier.width(12.dp))
                     if (voiceList.isNotEmpty()) {
                         Text(
                             "${filteredVoices.size}/${voiceList.size}",
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -163,7 +177,13 @@ fun GeneratorScreen(
 
             // --- FILTERS ---
             if (voiceList.isNotEmpty()) {
-                item { Text("Фильтры", style = MaterialTheme.typography.titleMedium) }
+                item {
+                    Text(
+                        "Фильтры",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 item {
                     FilterDropdown("Категория", options.categories, filters.category) {
                         filters = filters.copy(category = it)
@@ -219,14 +239,27 @@ fun GeneratorScreen(
                 }
             } else if (voiceList.isNotEmpty()) {
                 item {
-                    Text("Ничего не найдено по фильтрам.", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Ничего не найдено по фильтрам.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
             // --- VOICE SETTINGS ---
-            item { SliderWithLabel("Stability", stability) { stability = it } }
-            item { SliderWithLabel("Similarity", similarity) { similarity = it } }
-            item { SliderWithLabel("Style", style) { style = it } }
+            if (selectedVoice != null) {
+                item {
+                    Text(
+                        "Параметры голоса",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                item { SliderWithLabel("Stability", stability) { stability = it } }
+                item { SliderWithLabel("Similarity", similarity) { similarity = it } }
+                item { SliderWithLabel("Style", style) { style = it } }
+            }
 
             // --- TITLE + TEXT + GENERATE ---
             item {
@@ -243,8 +276,12 @@ fun GeneratorScreen(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text("Текст главы") },
-                    modifier = Modifier.fillMaxWidth().height(140.dp)
+                    modifier = Modifier.fillMaxWidth().height(160.dp)
                 )
+            }
+            // Мини-сводка: символов → примерная стоимость
+            item {
+                GenerationSummary(text = text)
             }
             item {
                 Button(
@@ -266,6 +303,8 @@ fun GeneratorScreen(
                                 )
                                 val chunks = Chunker.split(text, maxChars = 4500)
                                 val total = chunks.size
+                                val totalChars = text.trim().length
+                                val cost = AudioLibrary.estimateCostCredits(totalChars)
                                 val outFile = withContext(Dispatchers.IO) {
                                     val safeName = AudioLibrary.sanitizeFileName(voice.name)
                                     val out = File(
@@ -294,7 +333,10 @@ fun GeneratorScreen(
                                 withContext(Dispatchers.IO) {
                                     AudioLibrary.add(
                                         context, outFile, voice.id, voice.name,
-                                        displayName = display
+                                        displayName = display,
+                                        characterCount = totalChars,
+                                        chunkCount = total,
+                                        costCredits = cost
                                     )
                                 }
                                 refreshTick++
@@ -308,11 +350,24 @@ fun GeneratorScreen(
                         }
                     },
                     enabled = !isGenerating && apiKey.isNotBlank() && text.isNotBlank() && selectedVoice != null,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (isGenerating) "Генерируем…" else "Сгенерировать") }
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        if (isGenerating) "Генерируем…" else "Сгенерировать",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
             if (status.isNotEmpty()) {
-                item { Text(status, style = MaterialTheme.typography.bodySmall) }
+                item {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // --- SAVE FOLDER + LIBRARY (под формой) ---
@@ -324,6 +379,7 @@ fun GeneratorScreen(
                     Text(
                         "Сгенерированные аудио",
                         style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
                     SaveFolderChip(
@@ -337,7 +393,8 @@ fun GeneratorScreen(
                 item {
                     Text(
                         "Пока нет аудио. Нажмите «Сгенерировать», чтобы создать первый файл.",
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             } else {
@@ -367,9 +424,122 @@ fun GeneratorScreen(
 }
 
 @Composable
+private fun GenerationSummary(text: String) {
+    val chars = text.trim().length
+    val cost = AudioLibrary.estimateCostCredits(chars)
+    val chunks = Chunker.split(text, maxChars = 4500).size
+    val canGenerate = chars > 0
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatPill("символов", formatThousands(chars), Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            StatPill(
+                "примерно",
+                "~$cost кр.",
+                Modifier.weight(1f),
+                highlight = canGenerate,
+                highlightColor = MaterialTheme.colorScheme.tertiary
+            )
+            Spacer(Modifier.width(8.dp))
+            StatPill("частей", chunks.toString(), Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun StatPill(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    highlight: Boolean = false,
+    highlightColor: Color = MaterialTheme.colorScheme.primary
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (highlight) highlightColor.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surface
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (highlight) highlightColor else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+private fun formatThousands(n: Int): String =
+    "%,d".format(java.util.Locale.US, n).replace(',', ' ')
+
+@Composable
+private fun ApiKeyMissingCard(onOpenSettings: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "API-ключ не задан",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                "Чтобы генерировать аудио, откройте «Настройки» (шестерёнка справа сверху) и сохраните свой ElevenLabs API-ключ.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Button(onClick = onOpenSettings) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Открыть настройки")
+            }
+        }
+    }
+}
+
+@Composable
 private fun SliderWithLabel(label: String, value: Double, onValueChange: (Double) -> Unit) {
     Column {
-        Text("$label: ${"%.2f".format(value)}", style = MaterialTheme.typography.bodySmall)
+        Row {
+            Text(
+                "$label:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "%.2f".format(value),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
         Slider(value = value.toFloat(), onValueChange = { onValueChange(it.toDouble()) }, valueRange = 0f..1f)
     }
 }
@@ -382,7 +552,6 @@ private fun VoicePicker(voices: List<Voice>, selected: Voice?, onSelect: (Voice)
     var expanded by remember { mutableStateOf(false) }
     var previewingId by remember { mutableStateOf<String?>(null) }
 
-    // Воспроизведение превью
     LaunchedEffect(previewingId) {
         val id = previewingId ?: return@LaunchedEffect
         val v = voices.firstOrNull { it.id == id } ?: return@LaunchedEffect

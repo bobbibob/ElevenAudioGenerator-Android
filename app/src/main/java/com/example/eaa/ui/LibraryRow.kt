@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -18,9 +19,11 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.outlined.AttachMoney
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -28,11 +31,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +42,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -49,7 +53,6 @@ import com.example.eaa.audio.rememberPlayerProgress
 import com.example.eaa.model.GeneratedItem
 import com.example.eaa.util.AudioLibrary
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -59,16 +62,7 @@ import java.util.Locale
 /**
  * Общая строка библиотеки: имя (можно редактировать), шкала прогресса,
  * кнопки «Воспроизвести/Пауза», «Сохранить» (в выбранную папку), «Удалить»,
- * «Изменить имя», «Выбрать папку».
- *
- * Параметры:
- *  - [item] — запись библиотеки
- *  - [isSaving] — внешнее состояние «сейчас сохраняется» (для спиннера на кнопке)
- *  - [saveFolderLabel] — что показывать на чипе выбора папки
- *  - [onRefresh] — вызывающий код должен перечитать список (после удаления/сохранения)
- *  - [onChooseFolder] — вызывающий код откроет системный документ-пикер
- *  - [onSave] — вызывающий код делает сохранение и возвращает имя через [onSaved] для тоста
- *  - [onSaved] — опционально, строка результата (для тоста)
+ * «Изменить имя», «Выбрать папку», плюс зелёная стоимость.
  */
 @Composable
 fun LibraryRow(
@@ -89,9 +83,7 @@ fun LibraryRow(
     val duration = if (isThisPath) PlayerHolder.durationMs.value else 0
     val position = if (isThisPath) PlayerHolder.positionMs.value else 0
 
-    // Подписка на прогресс — пока строка «живая» и трек играет, обновляем позицию.
     rememberPlayerProgress(item.file.absolutePath)
-    // Чтобы Slider реагировал на смену трека (а не только на тики):
     val rev = PlayerHolder.revision.value
 
     var editing by remember { mutableStateOf(false) }
@@ -101,29 +93,46 @@ fun LibraryRow(
         AudioLibrary.visibleName(item)
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            // Заголовок: видимое имя + иконка «редактировать»
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            // Заголовок: видимое имя + стоимость (зелёным) + ✏
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         title,
                         fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleSmall
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         if (item.displayName.isNotBlank())
                             "голос: ${item.voiceName}"
                         else
                             "создано: ${df.format(Date(item.createdAt))}",
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                if (item.costCredits > 0) {
+                    Spacer(Modifier.width(8.dp))
+                    CostBadge(cost = item.costCredits, chunks = item.chunkCount)
                 }
                 IconButton(onClick = {
                     draftName = item.displayName.ifBlank { item.voiceName }
                     editing = true
                 }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Переименовать")
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Переименовать",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 
@@ -146,14 +155,12 @@ fun LibraryRow(
                     Text(text = formatMs(duration), style = MaterialTheme.typography.labelSmall)
                 }
             } else if (isThisPath) {
-                // MediaPlayer ещё не отдал duration
                 Text(
                     "…",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             } else {
-                // Трек не открыт — покажем «длительность неизвестна» в виде «--:-- / --:--»
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -163,7 +170,7 @@ fun LibraryRow(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
 
             // Кнопки действий
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,7 +181,8 @@ fun LibraryRow(
                             seekToMs = if (isThisPath) PlayerHolder.position() else 0
                         )
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
                         if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -201,7 +209,8 @@ fun LibraryRow(
                         }
                     },
                     enabled = !isSaving,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     if (isSaving) {
                         CircularProgressIndicator(
@@ -222,7 +231,8 @@ fun LibraryRow(
                         onRefresh()
                         Toast.makeText(context, "Удалено", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
@@ -230,7 +240,6 @@ fun LibraryRow(
                 }
             }
 
-            // Чтобы строка рекомпозировалась, когда меняется rev
             @Suppress("UNUSED_EXPRESSION") rev
         }
     }
@@ -268,6 +277,39 @@ fun LibraryRow(
                 TextButton(onClick = { editing = false }) { Text("Отмена") }
             }
         )
+    }
+}
+
+/**
+ * Маленький зелёный «бейдж» со стоимостью генерации.
+ * Если чанков несколько — добавляется «×N» (например, «~450 кр. ×3»).
+ */
+@Composable
+private fun CostBadge(cost: Int, chunks: Int) {
+    val label = if (chunks > 1) "~$cost кр. ×$chunks" else "~$cost кр."
+    val green = MaterialTheme.colorScheme.tertiary
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = green.copy(alpha = 0.12f)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AttachMoney,
+                contentDescription = null,
+                tint = green,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = green,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
