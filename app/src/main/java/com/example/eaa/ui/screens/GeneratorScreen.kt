@@ -158,7 +158,7 @@ fun GeneratorScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) {
                         Icon(
-                            Icons.Default.QueueMusic,
+                            Icons.Default.Album,
                             contentDescription = "Библиотека"
                         )
                     }
@@ -206,8 +206,7 @@ fun GeneratorScreen(
                                         }.getOrDefault(emptyList())
                                         voiceList = own
                                         sharedVoices = shared
-                                        selectedVoice = (filteredVoices.firstOrNull { it is com.example.eaa.api.Voice } as? com.example.eaa.api.Voice)
-                                            ?: voiceList.firstOrNull()
+                                        selectedVoice = voiceList.firstOrNull { v -> filteredVoices.any { it.id == v.id } } ?: voiceList.firstOrNull()
                                     } catch (e: Exception) {
                                         status = friendlyError(e, "Голоса не загрузились")
                                     } finally {
