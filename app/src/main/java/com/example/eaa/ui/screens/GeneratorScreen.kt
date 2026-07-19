@@ -310,7 +310,7 @@ fun GeneratorScreen(
             }
             // Мини-сводка: символов → примерная стоимость
             item {
-                GenerationSummary(text = text)
+                GenerationSummary(text = text, modelId = modelId)
             }
             item {
                 Button(
@@ -454,7 +454,7 @@ fun GeneratorScreen(
 }
 
 @Composable
-private fun GenerationSummary(text: String) {
+private fun GenerationSummary(text: String, modelId: String) {
     val chars = text.trim().length
     val cost = AudioLibrary.estimateCostCredits(chars, modelId)
     val chunks = Chunker.split(text, maxChars = 4500).size
