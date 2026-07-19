@@ -88,7 +88,8 @@ import java.io.File
 fun CloneVoiceScreen(
     apiKey: String,
     apiService: ElevenLabsService,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onCloned: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -316,11 +317,17 @@ fun CloneVoiceScreen(
                                 files = parts,
                                 labels = labelsRb
                             )
+                            // Сохраняем клон в локальный реестр клонов
+                            com.example.eaa.util.ClonedVoicesStore.add(
+                                context, resp.voiceId, resp.name ?: name, description
+                            )
                             Toast.makeText(
                                 context,
                                 "✅ Голос «${resp.name ?: name}» создан: ${resp.voiceId}",
                                 Toast.LENGTH_LONG
                             ).show()
+                            // Сигнал родителю «обнови список голосов»
+                            onCloned()
                             onBack()
                         } catch (e: Exception) {
                             Toast.makeText(
@@ -357,6 +364,24 @@ fun CloneVoiceScreen(
                         "ElevenLabs поддерживает мгновенное клонирование (IVC) — голос появится через несколько секунд.",
                         style = MaterialTheme.typography.labelSmall
                     )
+                }
+            )
+
+            HorizontalDivider()
+
+            // Список уже клонированных голосов
+            var cloned by remember {
+                mutableStateOf(com.example.eaa.util.ClonedVoicesStore.list(context))
+            }
+            ClonedVoicesList(
+                apiKey = apiKey,
+                apiService = apiService,
+                items = cloned,
+                onChanged = { cloned = com.example.eaa.util.ClonedVoicesStore.list(context) },
+                onPick = { v ->
+                    // Сигнал родителю «обновить голоса» (там уже есть voice_id) и закрыть
+                    onCloned()
+                    onBack()
                 }
             )
         }
@@ -431,4 +456,176 @@ private fun copyUriToCache(context: android.content.Context, uri: Uri, base: Str
         }
         out
     } catch (t: Throwable) { null }
+}
+
+/**
+ * Список ранее клонированных голосов с превью.
+ *
+ *  - Превью: на тап ▶ синтезируем короткую фразу через
+ *    /v1/text-to-speech/{voice_id} и играем через PlayerHolder.
+ *  - Удаление: стирает запись из локального реестра (но не на сервере).
+ *  - Клик по строке: возвращаем id и закрываем экран, чтобы новый голос
+ *    сразу был выбран в GeneratorScreen.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClonedVoicesList(
+    apiKey: String,
+    apiService: ElevenLabsService,
+    items: List<com.example.eaa.util.ClonedVoicesStore.ClonedVoice>,
+    onChanged: () -> Unit,
+    onPick: (com.example.eaa.util.ClonedVoicesStore.ClonedVoice) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var previewingId by remember { mutableStateOf<String?>(null) }
+    var previewingBusy by remember { mutableStateOf(false) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Клонированные голоса (${items.size})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (items.isEmpty()) {
+            Text(
+                "Пока нет клонов. Создайте первый выше.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
+        if (previewError != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    previewError ?: "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
+        items.forEach { v ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (previewingId == v.voiceId)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else
+                        MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            v.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            v.voiceId,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (v.description.isNotBlank()) {
+                            Text(
+                                v.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(
+                        enabled = apiKey.isNotBlank() && !previewingBusy,
+                        onClick = {
+                            if (previewingId == v.voiceId) {
+                                com.example.eaa.audio.PlayerHolder.stop()
+                                previewingId = null
+                                return@IconButton
+                            }
+                            previewingBusy = true
+                            previewError = null
+                            scope.launch {
+                                try {
+                                    val resp = apiService.synthesize(
+                                        voiceId = v.voiceId,
+                                        apiKey = apiKey,
+                                        outputFormat = "mp3_22050_32",
+                                        request = com.example.eaa.api.SynthesizeRequest(
+                                            text = "Привет, это мой клонированный голос.",
+                                            modelId = "eleven_multilingual_v2",
+                                            voiceSettings = com.example.eaa.api.VoiceSettings()
+                                        )
+                                    )
+                                    val tmp = withContext(Dispatchers.IO) {
+                                        val f = File(
+                                            context.cacheDir,
+                                            "clone_preview_${v.voiceId}_${System.currentTimeMillis()}.mp3"
+                                        )
+                                        f.outputStream().use { resp.byteStream().copyTo(it) }
+                                        f
+                                    }
+                                    previewingId = v.voiceId
+                                    com.example.eaa.audio.PlayerHolder.toggle(
+                                        tmp,
+                                        onCompletion = { previewingId = null }
+                                    )
+                                } catch (e: Exception) {
+                                    previewError = "Превью не удалось: ${e.message ?: e.javaClass.simpleName}"
+                                    previewingId = null
+                                } finally {
+                                    previewingBusy = false
+                                }
+                            }
+                        }
+                    ) {
+                        if (previewingBusy && previewingId == null) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                if (previewingId == v.voiceId)
+                                    androidx.compose.material.icons.Icons.Default.Stop
+                                else
+                                    androidx.compose.material.icons.Icons.Default.PlayArrow,
+                                contentDescription = if (previewingId == v.voiceId) "Стоп" else "Превью"
+                            )
+                        }
+                    }
+                    androidx.compose.material3.IconButton(onClick = { onPick(v) }) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Default.Check,
+                            contentDescription = "Использовать",
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    androidx.compose.material3.IconButton(onClick = {
+                        com.example.eaa.util.ClonedVoicesStore.remove(context, v.voiceId)
+                        onChanged()
+                    }) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Default.AudioFile,
+                            contentDescription = "Удалить из списка",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

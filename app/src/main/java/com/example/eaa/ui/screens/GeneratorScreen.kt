@@ -55,6 +55,7 @@ fun GeneratorScreen(
     apiKey: String,
     modelId: String = "eleven_multilingual_v2",
     apiService: ElevenLabsService,
+    voicesRefreshTick: Int = 0,
     onOpenLibrary: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenCloneVoice: () -> Unit = {}

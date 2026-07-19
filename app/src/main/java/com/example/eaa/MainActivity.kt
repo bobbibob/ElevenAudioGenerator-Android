@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,12 +81,16 @@ class MainActivity : ComponentActivity() {
                 var screen by remember { mutableStateOf(Screen.GENERATOR) }
                 var apiKey by remember { mutableStateOf(KeychainHelper.get(this).orEmpty()) }
                 var modelId by remember { mutableStateOf(AppSettings.getModel(this)) }
+                // Сигнал «обнови список голосов» — увеличивается после клонирования.
+                // GeneratorScreen слушает его и заново тянет /v1/voices + /v1/shared-voices.
+                var voicesRefreshTick by remember { mutableIntStateOf(0) }
 
                 when (screen) {
                     Screen.GENERATOR -> GeneratorScreen(
                         apiKey = apiKey,
                         modelId = modelId,
                         apiService = apiService,
+                        voicesRefreshTick = voicesRefreshTick,
                         onOpenLibrary = { screen = Screen.LIBRARY },
                         onOpenSettings = { screen = Screen.SETTINGS },
                         onOpenCloneVoice = { screen = Screen.CLONE }
@@ -105,7 +111,10 @@ class MainActivity : ComponentActivity() {
                     Screen.CLONE -> CloneVoiceScreen(
                         apiKey = apiKey,
                         apiService = apiService,
-                        onBack = { screen = Screen.GENERATOR }
+                        onBack = { screen = Screen.GENERATOR },
+                        onCloned = {
+                            voicesRefreshTick++   // ← главное: новый voice_id попадёт в список
+                        }
                     )
                 }
             }
