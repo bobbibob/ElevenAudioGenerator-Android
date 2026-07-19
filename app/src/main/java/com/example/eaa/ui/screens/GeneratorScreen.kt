@@ -84,9 +84,6 @@ fun GeneratorScreen(
         val tree = AudioLibrary.getSaveTree(context)
         saveFolderLabel = tree?.let { AudioLibrary.humanFolderName(context, it) }
     }
-    LaunchedEffect(refreshTick) { refresh() }
-    LaunchedEffect(apiKey) { if (apiKey.isNotBlank()) refreshBalance() }
-
     fun refreshBalance() {
         if (apiKey.isBlank() || isLoadingBalance) return
         isLoadingBalance = true
@@ -100,6 +97,9 @@ fun GeneratorScreen(
             }
         }
     }
+
+    LaunchedEffect(refreshTick) { refresh() }
+    LaunchedEffect(apiKey) { if (apiKey.isNotBlank()) refreshBalance() }
 
     val treePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
