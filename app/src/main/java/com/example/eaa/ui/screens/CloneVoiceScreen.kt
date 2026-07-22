@@ -25,9 +25,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -48,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +65,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.eaa.api.ElevenLabsService
+import com.example.eaa.api.SynthesizeRequest
+import com.example.eaa.api.VoiceSettings
+import com.example.eaa.audio.PlayerHolder
+import com.example.eaa.audio.rememberPlayerProgress
+import com.example.eaa.util.ClonedVoicesStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,9 +88,13 @@ import java.io.File
  *  3) ввести имя и описание
  *  4) нажать «Клонировать» — POST /v1/voices/add
  *
- * Новый voice_id добавляется в реестр, обновляется список голосов в UI
- * (экран возвращается на GeneratorScreen, который при перезагрузке подтянет
- * /v1/voices и увидит клона).
+ * После успешного клонирования:
+ *  - новый voice_id пишется в [ClonedVoicesStore] (SharedPreferences)
+ *  - сразу синтезируется короткая RU-фраза и играет в превью
+ *  - через `onCloned(voiceId)` родитель увеличивает voicesRefreshTick →
+ *    GeneratorScreen подмешивает клонов в общий список голосов.
+ *
+ * Снизу — список уже клонированных голосов с превью-кнопкой.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +102,7 @@ fun CloneVoiceScreen(
     apiKey: String,
     apiService: ElevenLabsService,
     onBack: () -> Unit,
-    onCloned: () -> Unit = {}
+    onCloned: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -102,6 +115,10 @@ fun CloneVoiceScreen(
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingUri by remember { mutableStateOf<Uri?>(null) }
     var pendingFile by remember { mutableStateOf<File?>(null) }
+    // Сигнал «обновить список клонов внизу» — увеличивается после клонирования
+    var clonesRefreshTick by remember { mutableStateOf(0) }
+    // ID только что склонированного голоса — для автопревью
+    var lastClonedVoiceId by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -128,6 +145,9 @@ fun CloneVoiceScreen(
     ) { uris: List<Uri> ->
         uris.forEach { samples.add(it) }
     }
+
+    // Список клонов
+    val clonedItems = remember(clonesRefreshTick) { ClonedVoicesStore.list(context) }
 
     Scaffold(
         topBar = {
@@ -318,17 +338,24 @@ fun CloneVoiceScreen(
                                 labels = labelsRb
                             )
                             // Сохраняем клон в локальный реестр клонов
-                            com.example.eaa.util.ClonedVoicesStore.add(
+                            ClonedVoicesStore.add(
                                 context, resp.voiceId, resp.name ?: name, description
                             )
+                            // Обновляем список клонов внизу
+                            clonesRefreshTick++
+                            lastClonedVoiceId = resp.voiceId
+
                             Toast.makeText(
                                 context,
                                 "✅ Голос «${resp.name ?: name}» создан: ${resp.voiceId}",
                                 Toast.LENGTH_LONG
                             ).show()
                             // Сигнал родителю «обнови список голосов»
-                            onCloned()
-                            onBack()
+                            onCloned(resp.voiceId)
+                            // Сбрасываем форму
+                            name = ""
+                            description = ""
+                            samples.clear()
                         } catch (e: Exception) {
                             Toast.makeText(
                                 context,
@@ -370,17 +397,16 @@ fun CloneVoiceScreen(
             HorizontalDivider()
 
             // Список уже клонированных голосов
-            var cloned by remember {
-                mutableStateOf(com.example.eaa.util.ClonedVoicesStore.list(context))
-            }
             ClonedVoicesList(
                 apiKey = apiKey,
                 apiService = apiService,
-                items = cloned,
-                onChanged = { cloned = com.example.eaa.util.ClonedVoicesStore.list(context) },
+                items = clonedItems,
+                autoPlayVoiceId = lastClonedVoiceId,
+                onConsumedAutoPlay = { lastClonedVoiceId = null },
+                onChanged = { clonesRefreshTick++ },
                 onPick = { v ->
                     // Сигнал родителю «обновить голоса» (там уже есть voice_id) и закрыть
-                    onCloned()
+                    onCloned(v.voiceId)
                     onBack()
                 }
             )
@@ -421,7 +447,7 @@ private fun SampleRow(
             }
             IconButton(onClick = onRemove) {
                 Icon(
-                    Icons.Default.AudioFile,
+                    Icons.Default.Delete,
                     contentDescription = "Удалить",
                     tint = MaterialTheme.colorScheme.error
                 )
@@ -464,23 +490,79 @@ private fun copyUriToCache(context: android.content.Context, uri: Uri, base: Str
  *  - Превью: на тап ▶ синтезируем короткую фразу через
  *    /v1/text-to-speech/{voice_id} и играем через PlayerHolder.
  *  - Удаление: стирает запись из локального реестра (но не на сервере).
- *  - Клик по строке: возвращаем id и закрываем экран, чтобы новый голос
- *    сразу был выбран в GeneratorScreen.
+ *  - Клик по «Использовать»: возвращаем id и закрываем экран, чтобы новый
+ *    голос сразу был выбран в GeneratorScreen.
+ *  - autoPlayVoiceId: если не null, при первом появлении элемента с этим
+ *    id — сразу запускаем превью (для свежесклонированного голоса).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ClonedVoicesList(
     apiKey: String,
     apiService: ElevenLabsService,
-    items: List<com.example.eaa.util.ClonedVoicesStore.ClonedVoice>,
+    items: List<ClonedVoicesStore.ClonedVoice>,
+    autoPlayVoiceId: String? = null,
+    onConsumedAutoPlay: () -> Unit = {},
     onChanged: () -> Unit,
-    onPick: (com.example.eaa.util.ClonedVoicesStore.ClonedVoice) -> Unit
+    onPick: (ClonedVoicesStore.ClonedVoice) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var previewingId by remember { mutableStateOf<String?>(null) }
     var previewingBusy by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf<String?>(null) }
+
+    fun stopPreview() {
+        PlayerHolder.stop()
+        previewingId = null
+    }
+
+    fun playPreview(v: ClonedVoicesStore.ClonedVoice) {
+        if (apiKey.isBlank() || previewingBusy) return
+        previewingBusy = true
+        previewError = null
+        scope.launch {
+            try {
+                val resp = apiService.synthesize(
+                    voiceId = v.voiceId,
+                    apiKey = apiKey,
+                    outputFormat = "mp3_22050_32",
+                    request = SynthesizeRequest(
+                        text = "Привет, это мой клонированный голос.",
+                        modelId = "eleven_multilingual_v2",
+                        voiceSettings = VoiceSettings()
+                    )
+                )
+                val tmp = withContext(Dispatchers.IO) {
+                    val f = File(
+                        context.cacheDir,
+                        "clone_preview_${v.voiceId}_${System.currentTimeMillis()}.mp3"
+                    )
+                    f.outputStream().use { resp.byteStream().copyTo(it) }
+                    f
+                }
+                previewingId = v.voiceId
+                PlayerHolder.toggle(
+                    tmp,
+                    onCompletion = { previewingId = null }
+                )
+            } catch (e: Exception) {
+                previewError = "Превью не удалось: ${e.message ?: e.javaClass.simpleName}"
+                previewingId = null
+            } finally {
+                previewingBusy = false
+            }
+        }
+    }
+
+    // Автопревью свежесклонированного голоса
+    LaunchedEffect(autoPlayVoiceId) {
+        val id = autoPlayVoiceId ?: return@LaunchedEffect
+        onConsumedAutoPlay()
+        // Даём UI один кадр на отрисовку
+        kotlinx.coroutines.delay(150)
+        items.firstOrNull { it.voiceId == id }?.let { playPreview(it) }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -490,6 +572,11 @@ private fun ClonedVoicesList(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
+            if (previewingId != null) {
+                IconButton(onClick = { stopPreview() }) {
+                    Icon(Icons.Default.Stop, contentDescription = "Стоп")
+                }
+            }
         }
         if (items.isEmpty()) {
             Text(
@@ -513,11 +600,17 @@ private fun ClonedVoicesList(
             }
         }
         items.forEach { v ->
+            val isPreviewing = previewingId == v.voiceId
+            val pathForVoice = PlayerHolder.current()?.takeIf {
+                it.contains("clone_preview_${v.voiceId}_")
+            }
+            val playingHere = pathForVoice != null && PlayerHolder.isPlaying()
+            rememberPlayerProgress(pathForVoice)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (previewingId == v.voiceId)
+                    containerColor = if (isPreviewing)
                         MaterialTheme.colorScheme.primaryContainer
                     else
                         MaterialTheme.colorScheme.surface
@@ -551,75 +644,57 @@ private fun ClonedVoicesList(
                     IconButton(
                         enabled = apiKey.isNotBlank() && !previewingBusy,
                         onClick = {
-                            if (previewingId == v.voiceId) {
-                                com.example.eaa.audio.PlayerHolder.stop()
-                                previewingId = null
-                                return@IconButton
-                            }
-                            previewingBusy = true
-                            previewError = null
-                            scope.launch {
-                                try {
-                                    val resp = apiService.synthesize(
-                                        voiceId = v.voiceId,
-                                        apiKey = apiKey,
-                                        outputFormat = "mp3_22050_32",
-                                        request = com.example.eaa.api.SynthesizeRequest(
-                                            text = "Привет, это мой клонированный голос.",
-                                            modelId = "eleven_multilingual_v2",
-                                            voiceSettings = com.example.eaa.api.VoiceSettings()
-                                        )
-                                    )
-                                    val tmp = withContext(Dispatchers.IO) {
-                                        val f = File(
-                                            context.cacheDir,
-                                            "clone_preview_${v.voiceId}_${System.currentTimeMillis()}.mp3"
-                                        )
-                                        f.outputStream().use { resp.byteStream().copyTo(it) }
-                                        f
-                                    }
+                            when {
+                                playingHere -> stopPreview()
+                                isPreviewing && pathForVoice != null -> {
+                                    // Уже синтезировали, но плеер остановлен — перезапускаем
                                     previewingId = v.voiceId
-                                    com.example.eaa.audio.PlayerHolder.toggle(
-                                        tmp,
+                                    PlayerHolder.toggle(
+                                        File(pathForVoice),
                                         onCompletion = { previewingId = null }
                                     )
-                                } catch (e: Exception) {
-                                    previewError = "Превью не удалось: ${e.message ?: e.javaClass.simpleName}"
-                                    previewingId = null
-                                } finally {
-                                    previewingBusy = false
+                                }
+                                else -> {
+                                    stopPreview()
+                                    playPreview(v)
                                 }
                             }
                         }
                     ) {
-                        if (previewingBusy && previewingId == null) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
+                        when {
+                            previewingBusy && !playingHere && !isPreviewing -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                            playingHere -> Icon(
+                                Icons.Default.Pause,
+                                contentDescription = "Пауза"
                             )
-                        } else {
-                            Icon(
-                                if (previewingId == v.voiceId)
-                                    androidx.compose.material.icons.Icons.Default.Stop
-                                else
-                                    androidx.compose.material.icons.Icons.Default.PlayArrow,
-                                contentDescription = if (previewingId == v.voiceId) "Стоп" else "Превью"
+                            else -> Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = "Превью"
                             )
                         }
                     }
-                    androidx.compose.material3.IconButton(onClick = { onPick(v) }) {
+                    IconButton(
+                        onClick = { onPick(v) },
+                        enabled = apiKey.isNotBlank()
+                    ) {
                         Icon(
-                            androidx.compose.material.icons.Icons.Default.HowToReg,
+                            Icons.Default.Refresh,
                             contentDescription = "Использовать",
                             tint = MaterialTheme.colorScheme.tertiary
                         )
                     }
-                    androidx.compose.material3.IconButton(onClick = {
-                        com.example.eaa.util.ClonedVoicesStore.remove(context, v.voiceId)
+                    IconButton(onClick = {
+                        stopPreview()
+                        ClonedVoicesStore.remove(context, v.voiceId)
                         onChanged()
                     }) {
                         Icon(
-                            androidx.compose.material.icons.Icons.Default.AudioFile,
+                            Icons.Default.Delete,
                             contentDescription = "Удалить из списка",
                             tint = MaterialTheme.colorScheme.error
                         )

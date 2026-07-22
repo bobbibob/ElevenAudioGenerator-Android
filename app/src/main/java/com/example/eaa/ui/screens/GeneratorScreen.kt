@@ -42,6 +42,7 @@ import com.example.eaa.ui.applyFilters
 import com.example.eaa.ui.filterDisplay
 import com.example.eaa.ui.toLike
 import com.example.eaa.util.AudioLibrary
+import com.example.eaa.util.ClonedVoicesStore
 import com.example.eaa.util.Chunker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ fun GeneratorScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var clonedVoices by remember { mutableStateOf(listOf<ClonedVoicesStore.ClonedVoice>()) }
     var selectedVoice by remember { mutableStateOf<com.example.eaa.ui.VoiceLike?>(null) }
     var voiceList by remember { mutableStateOf(listOf<Voice>()) }
     var sharedVoices by remember { mutableStateOf(listOf<com.example.eaa.api.SharedVoice>()) }
@@ -90,12 +92,16 @@ fun GeneratorScreen(
     var isLoadingBalance by remember { mutableStateOf(false) }
 
     val options = remember(voiceList, sharedVoices) { VoiceFilterOptions.from(voiceList, sharedVoices) }
-    val filteredVoices = remember(voiceList, sharedVoices, filters) {
+    // Один раз при входе в экран загрузим список клонов из локального реестра
+    LaunchedEffect(Unit) { clonedVoices = ClonedVoicesStore.list(context) }
+    val filteredVoices = remember(voiceList, sharedVoices, clonedVoices, filters) {
         // Для языка ru подмешиваем локальный каталог (≈50 премиум-голосов ElevenLabs Voice Library)
         val ruCatalog = com.example.eaa.util.RuVoiceCatalog.forFilter(filters.language)
         val sources: List<com.example.eaa.ui.VoiceLike> = buildList {
             voiceList.forEach { add(it.toLike()) }
             sharedVoices.forEach { add(it.toLike()) }
+            // Клонированные голоса — всегда сверху и доступны без загрузки /v1/voices
+            clonedVoices.forEach { add(it.toLike()) }
             ruCatalog?.forEach { add(it.toLike()) }
         }
         sources.applyFilters(filters)
@@ -128,6 +134,18 @@ fun GeneratorScreen(
 
     LaunchedEffect(refreshTick) { refresh() }
     LaunchedEffect(apiKey) { if (apiKey.isNotBlank()) refreshBalance() }
+    // При смене voicesRefreshTick (например, после клонирования) — подтягиваем
+    // клонов из локального реестра и сразу выбираем свежего в picker.
+    LaunchedEffect(voicesRefreshTick) {
+        clonedVoices = ClonedVoicesStore.list(context)
+        if (clonedVoices.isNotEmpty()) {
+            val latest = clonedVoices.first()
+            // ищем среди уже-загруженных, иначе добавляем минимальный VoiceLike
+            val existing = voiceList.firstOrNull { it.id == latest.voiceId }?.toLike()
+                ?: sharedVoices.firstOrNull { it.voiceId == latest.voiceId }?.toLike()
+            selectedVoice = existing ?: latest.toLike()
+        }
+    }
 
     val treePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()

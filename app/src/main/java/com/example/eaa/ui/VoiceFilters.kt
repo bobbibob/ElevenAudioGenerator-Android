@@ -3,6 +3,7 @@ package com.example.eaa.ui
 import com.example.eaa.api.SharedVoice
 import com.example.eaa.api.Voice
 import com.example.eaa.api.label
+import com.example.eaa.util.ClonedVoicesStore
 
 /**
  * Фильтры списка голосов — повторяют фильтры в web-консоли ElevenLabs.
@@ -144,3 +145,24 @@ fun List<VoiceLike>.applyFilters(filters: VoiceFilters): List<VoiceLike> {
 }
 
 fun filterDisplay(value: String?): String = value?.replaceFirstChar { it.uppercase() } ?: "Любой"
+
+
+/**
+ * Адаптер ClonedVoicesStore.ClonedVoice → VoiceLike, чтобы клоны участвовали
+ * в общем filteredVoices / VoicePicker. previewUrl пустой, но имя/описание
+ * сохраняются.
+ */
+fun ClonedVoicesStore.ClonedVoice.toLike(): VoiceLike {
+    val c = this
+    return object : VoiceLike {
+        override val id: String = c.voiceId
+        override val name: String = c.name
+        override val description: String? = c.description.takeIf { it.isNotBlank() }
+        override val category: String? = "cloned"
+        override val previewUrl: String? = null
+        override fun label(key: String): String? = when (key) {
+            "gender", "age", "accent", "language", "use case", "usecase", "use_case" -> null
+            else -> null
+        }
+    }
+}

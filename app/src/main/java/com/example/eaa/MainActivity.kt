@@ -112,8 +112,9 @@ class MainActivity : ComponentActivity() {
                         apiKey = apiKey,
                         apiService = apiService,
                         onBack = { screen = Screen.GENERATOR },
-                        onCloned = {
+                        onCloned = { voiceId ->
                             voicesRefreshTick++   // ← главное: новый voice_id попадёт в список
+                            // (на будущее — можно потом сразу выбирать этот voice)
                         }
                     )
                 }
